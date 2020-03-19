@@ -1,0 +1,198 @@
+POJO（Plain Ordinary Java Object）简单的Java对象，实际就是普通JavaBeans，是为了避免和EJB混淆所创造的简称。
+使用POJO名称是为了避免和EJB混淆起来, 而且简称比较直接. 其中有一些属性及其getter setter方法的类,没有业务逻辑，有时可以作为VO(value -object)或dto(Data Transform Object)来使用.当然,如果你有一个简单的运算属性也是可以的,但不允许有业务方法,也不能携带有connection之类的方法。
+
+JavaBean是一个可重复使用的软件组件。实际上JavaBean是一种Java类，通过封装属性和方法成为具有某种功能或者处理某个业务的对象，简称bean。
+JavaBean 是一种JAVA语言写成的可重用组件。它的方法命名，构造及行为必须符合特定的约定：
+这个类必须有一个公共的缺省构造函数。
+这个类的属性使用getter和setter来访问，其他方法遵从标准命名规范。
+这个类应是可序列化的。 
+因为这些要求主要是靠约定而不是靠实现接口，所以许多开发者把JavaBean看作遵从特定命名约定的POJO
+
+spring
+Spring为开发者提供的是一个一站式的轻量级应用开发框架，作为平台，Spring抽象了我们在许多应用开发中遇到的共性问题，同时，作为一个轻量级的应用开发框架，Spring和传统的J2EE开发相比，有其自身的特点。通过这些自身的特点，Spring充分体现了它的设计理念，在Java EE的应用开发中，支持POJO和使用JavaBean的开发方式，使应用面向接口开发，充分支持OO的设计方法
+
+在Java EE应用开发中，传统的EJB开发需要依赖按照J2EE规范实现的J2EE应用服务器。我们的应用在设计，特别是实现时，往往需要遵循一系列的接口标准，才能够在应用服务器的环境中得到测试和部署。这种开发方式，使应用在可测试性和部署上都会受到一些影响。Spring的设计理念采用了相对EJB而言的轻量级开发思想，即使用POJO的开发方式，只需要使用简单的Java对象或者JavaBean就能进行JavaEE开发，这样开发的入门、测试、应用部署都得到了简化
+
+另一方面，在我们的应用开发中，往往会涉及复杂的对象耦合关系，如果在Java代码中处理这些耦合关系，对代码的维护性和应用扩展性会带来许多不便。而如果使用Spring作为应用开发平台，通过使用Spring的IOC容器，可以对这些耦合关系实现一个文本化、外部化的工作，也就是说，通过一个或几个XML文件，我们就可以方便地对应用对象的耦合关系进行浏览、修改和维护，这样，可以在很大程度上简化应用开发。同时，通过IOC容器实现的依赖反转，把依赖关系的管理从Java对象中解放出来，交给了IOC容器来完成，从而完成了对象之间的关系解耦
+
+作为应用平台，Spring与Unix、Windows这样传统意义的操作系统在计算机系统中的作用类似，即作为用户和机器之间的平台，同时也为用户使用底层的机器资源提供了应用开发环境。不同点在于，操作系统关心的是对存储、计算、通信、外围设备等物理资源的管理，并在管理这些资源的基础上，为用户提供一个统一的服务接口，而对于像Spring这样的JavaEE企业应用而言，其关心的是一些企业应用资源的使用，比如数据持久化、数据集成、事务处理、消息中间件、分布式计算等技术抽象。具体来说，在J2EE开发中，EJB提供了一种模式，而Spring提供了另一种POJO的开发模式，虽然开发模式不同，也就是使用具体资源的模式不同，但出发点却都是一样的
+
+在对Spring的内部设计进行分析时，也可以依据对传统操作系统的认知方法，在设计上把Spring划分为核心、组件和应用3个基本的层次
+Spring体系的核心，类似操作系统的Kernel，即IOC容器和AOP模块。对spring来说，一方面，它通过IOC容器来管理POJO对象，以及它们相互之间的耦合关系，使企业的信息数据资源可以用简单的Java语言来抽象和描述，另一方面，可以通过AOP，以动态和非侵入式的方式来增强服务的功能，所以，我们可以把IOC容器和AOP模块看做是Spring的Kernel，是平台实现的核心部分，作为核心，它们代表了最为基础的底层抽象，同时也是Spring其他模块实现的基础
+Spring的设计理念-面向接口开发而不依赖于具体的产品实现
+
+Spring IOC：包含了最为基本的IOC容器BeanFactory的接口和实现，如XmlBeanFactory，SimpleJndiBeanFactory等，除此之外，Spring还设计了IOC容器的高级形态ApplicationContext应用上下文供用户使用
+
+Spring AOP：围绕着AOP的增强功能，Spring集成了AspectJ作为AOP的一个特定实现，同时还在JVM动态代理/CGLIB的基础上，实现了一个AOP框架，作为Spring集成其他模块的工具，比如声明式事务
+
+Spring MVC：这个模块以DispatcherServlet为核心，实现了MVC模式，包括怎样与Web容器环境的集成，Web请求的拦截、分发、处理和ModelAndView数据的返回，以及如何集成各种UI视图展现和数据表现
+
+Spring JDBC/Spring ORM：Spring JDBC包提供了JdbcTemplate作为模板类，封装了基本的数据库操作方法。另外除了通过Spring JDBC对数据库进行操作外，Spring还提供了许多对ORM工具的封装，这些封装包括了常用的ORM工具，如Hibernate、iBatis等，这一层的封装是让应用更方便地使用这些ORM工具，而不是替代这些ORM工具
+
+Spring事务处理：Spring事务处理是一个通过Spring AOP实现自身功能增强的典型模块
+
+Spring远端调用：Spring为应用带来的一个好处就是能够将应用解耦，这种远端调用是通过Spring的封装从Spring应用到Spring应用之间的端到端调用，这个过程中，通过Spring的封装，为应用屏蔽了各种通信的调用来实现，比如可以使用HTTP调用器，RMI、Hessian
+
+Spring应用：Spring子项目，比如Spring Security OAuth
+
+Spring的价值
+Spring是一个非侵入性框架，其目标是使应用程序代码对框架的依赖最小化
+Spring提供了一个一致的编程模型，使应用直接使用POJO开发，从而可以与运行环境隔离开来
+Spring推动了应用的设计风格向面向对象及面向接口编程转变，提高了代码的重用性和可测试性
+Spring改进了体系结构的选择，虽然作为应用平台，Spring可以帮助我们选择不同的技术实现
+
+
+Spring 应用上下文中所有的 bean 都会给定一个ID。如果我们没有明确地设置ID，Spring 会根据类名为其指定一个ID。具体来讲，就是将类名的第一个字母变为小写。
+
+如果我们没有为 @ComponentScan 设置任何属性。这意味着，按照默认规则，它会以配置类所在的包作为基础包（base package）来扫描组件
+
+基于注解的bean需要被扫描到才可以使用，即需要在xml中添加<context:component-scan base-package="context" />
+类似地，对于使用AOP注解的切面也需要添加 <aop:aspectj-autoproxy />
+使用注解事务需要添加<tx:annotation-driven />
+xml bean和JavaConfig生成的并不需要
+
+尽管在很多场景下通过组件扫描和自动装配实现 Spring 的自动化配置是更为推荐的方式，但有时候自动化配置的方案行不通，因此需要明确配置 Spring。比如说，你想要将第三方库中的组件装配到你的应用中，在这种情况下，是没有办法在它的类上添加 @Component 和 @Autowired 注解的，因此就不能使用自动化装配的方案了。
+在这种情况下，你必须要采用显式装配的方式。在进行显式配置的时候，有两种可选方案：JavaConfig 和 XML。
+
+默认情况下，JavaConfig bean 的 ID 与带有 @Bean 注解的方法名是一样的。如果你想为其设置成一个不同的名字的话，那么可以重命名该方法，也可以通过 name 属性指定一个不同的名字。
+
+如果方法上添加了 @Bean 注解， Spring 将会拦截所有对它的调用，并确保直接返回该方法所创建的 bean，而不是每次都对其进行实际的调用
+
+<bean class="soundsystem.SgtPeppers" />
+因为没有明确给定 ID，所以这个 bean 将会根据全限定类名来进行命 名。在本例中，bean 的 ID 将会是 “soundsystem.SgtPeppers#0”。其中，“#0” 是一个计数的形式，用来区分相同类型的其他 bean。如果你声明了另外一个 SgtPeppers，并且没有明确进行标识，那么它自动得到的 ID 将会是 “soundsystem.SgtPeppers#1”
+
+id和name都是spring 容器中中bean 的唯一标识符。
+id: 一个bean的唯一标识，命名格式必须符合XML ID属性的命名规范
+name: 可以用特殊字符，并且一个bean可以用多个名称：name=“bean1,bean2,bean3” ,用逗号或者分号或者空格隔开。如果没有id，则name的第一个名称默认是id
+
+p-命名空间 和 c-命名空间 无法装配集合
+可以使用util-命名空间中转下
+
+关于混合配置，第一件需要了解的事情就是在自动装配时，它并不在意要装配的 bean 来自哪里。自动装配的时候会考虑到 Spring 容器中所有的 bean，不管它是在 JavaConfig 或 XML 中声明的还是通过组件扫描获取到的。
+
+@Qualifier定义或者使用bean的限定符（别名）
+
+Spring 定义了多种作用域，可以基于这些作用域创建 bean，包括：
+单例（Singleton）：在整个应用中，只创建 bean 的一个实例。
+原型（Prototype）：每次注入或者通过 Spring 应用上下文获取的时候，都会创建一个新的 bean 实例。
+会话（Session）：在 Web 应用中，为每个会话创建一个 bean 实例。
+请求（Rquest）：在 Web 应用中，为每个请求创建一个 bean 实例。
+
+
+一些编程语言例如Ruby和Groovy，有开放类的理念，可以不用修改对象或类的定义就能够为对象或类增加新的方法，不过Java并不是动态语言，一旦类编译完成了，我们就很难再为该类添加新的功能
+
+与 AspectJ 相比，Spring AOP 是一个功能比较弱的 AOP 解决方案，SpringAOP无法增强构造器
+
+
+IOC容器
+依赖反转：如果合作对象的引用或依赖关系的管理由具体对象来完成，会导致代码的高度耦合和可测试性的降低，这对复杂的面向对象系统的设计是非常不利的。在面向对象系统中，对象封装了数据和对数据的处理，对象的依赖关系常常体现在对数据和方法的依赖上，这些依赖关系可以通过把对象的依赖注入交给框架或IOC容器来完成，这种从具体对象手中交出控制的做法是非常有价值的，它可以在解耦代码的同时提高代码的可测试性
+依赖控制反转的实现有很多种方式，在Spring中，IOC容器是实现这个模式的载体，它可以在对象生成或初始化时直接将数据注入到对象中，也可以通过将对象引用注入到对象数据域中的方式来注入对方法调用的依赖
+关于如何反转对依赖的控制，把控制权从具体业务对象手中转交到平台或者框架中，是降低面向对象系统设计复杂性和提高面向对象系统可测试性的一个有效的解决方案。它促进了IOC设计模式的发展，是IOC容器要解决的核心问题
+IOC原理的应用在不同的语言中有很多实现，比如SmallTalk、C++、Java等，在同一语言的实现中也会有多个具体的产品，Spring是Java语言实现中最著名的一个
+
+控制反转本质上就是把原来需要自己创建的对象交给容器去帮忙创建
+通过使用IOC容器，对象依赖关系的管理被反转了，转到IOC容器中来了，对象之间的相互依赖关系由IOC容器进行管理，并由IOC容器完成对象的注入，这样就在很大程度上简化了应用的开发，把应用从复杂的对象依赖关系管理中解放出来。
+简单来说，因为很多对象依赖关系的建立和维护并不需要和系统运行状态有很强的关联性，所以可以把在面向对象编程中需要执行的诸如新建对象，为对象引用赋值等操作交由容器统一完成。这样一来，这些散落在不同代码中的功能相同的部分就集中称为容器的一部分，也就是成为面向对象系统的基础设施的一部分
+
+如果对面向对象系统中的对象进行简单分类，会发现除了一部分是数据对象外，其他很大一部分对象是用来处理数据的，这些对象并不常发生变化，是系统中基础的部分。在很多情况下，这些对象在系统中以单件的形式起作用就可以满足应用的需求，而且他们也不常设计数据和状态共享的问题。如果涉及数据共享方面的问题，需要在这些单件的基础上再做进一步的处理
+
+同时，这些对象之间的相互依赖关系也是比较稳定的，一般不会随着应用的运行状态的改变而改变。这些特性使这些对象非常适合由IOC容器来管理
+
+在EJB模式中，应用开发人员需要编写EJB组件，而这种组件需要满足EJB容器的规范，才能够运行在EJB容器中，从而获取事务管理，生命周期管理这些组件开发的基本服务。从获取的服务上看，Spring提供的服务和EJB容器提供的服务并没有太大的区别，只是在具体怎样获取服务的方式上，两者的设计有很大的不同，对于EJB，一个简单的EJB组件需要编写远程/本地接口、Home接口以及Bean的实现类，而且EJB运行是不能脱离EJB容器的，查找其他EJB组件也需要通过诸如JNDI这样的方式，从而造成了对EJB容器和技术规范的依赖。也就是说Spring把EJB组件还原成了POJO对象或者JavaBean对象，降低了应用开发对传统J2EE技术规范的依赖
+
+J2EE优点是什么？使用J2EE的主要原因是多层结构，传统的两层C/S结构难于维护，稳定性极差，界面代码和数据库代码混淆在一起，牵一动百，多层结构使得界面和数据库完全分离，并且诞生了中间件这样的技术
+
+
+EJB(Enterprise Java Bean)是JavaEE中面向服务的体系架构的解决方案，可以将功能封装在服务器端，以服务的形式对外发布，客户端在无需知道方法细节的情况下来远程调用方法，大大降低了模块间的耦合性，提高了系统的安全性和可维护性。
+"面向服务"，是软件开发过程中，异构环境下模块调用的一个比较重要的思想。同样，面向服务也只是一种设计思想，不是一种编程技术。由"面向服务"的思想，业界提出了"面向服务的体系结构(Service Oriented Architecture, SOA)"的概念。
+
+作为IOC容器，需要为它的具体实现指定基本的功能规范，这个功能规范的设计表现为接口类BeanFactory
+
+对IOC容器来说，BeanDefinition就是对依赖反转模式中管理的对象依赖关系的数据抽象，也就容器实现依赖反转功能的核心数据结构，依赖反转功能都是围绕对这个BeanDefinition的处理来完成的，这些BeanDefinition就像是容器里的水
+
+BeanFactory是IOC容器的最基本接口，ApplicationContext的设计中，一方面，它继承了BeanFactory接口体系中的ListableBeanFactory、AutowireCapableBeanFactory等BeanFactory接口，另一方面，通过继承MessageSource、ResourceLoader这些接口，被赋予了更高级的IOC容器特性
+
+在Spring中，所有的Bean都是由BeanFactory来进行管理的，但对FactoryBean而言，这个Bean不是简单的Bean，而是一个能产生或者修饰对象生成的工厂Bean
+
+BeanFactory接口设计了getBean方法，这个方法是使用IOC容器API的主要方法，通过这个方法，可以取得IOC容器中管理的Bean，Bean的取得是通过指定名字来索引的
+有了BeanFactory的定义，用户可以执行以下操作：
+通过接口方法containsBean让用户能够判断容器是否含有指定名字的bean
+通过接口方法isSingleton来查询指定名字的Bean是否是Singleton类型的Bean，类似地isPrototype
+通过接口方法getType来查询指定名字的Bean的Class类型
+
+XmlBeanFactory继承自DefaultListableBeanFactory，后者实际包含了基本IOC容器所具有的重要功能，也是在很多地方都会用到的容器系列中的一个基本产品
+在Spring中，实际上是把DefaultListableBeanFactory作为一个默认的功能完整的IOC容器来使用的，XmlBeanFactory只是增加了XML相关的功能
+
+在XmlBeanFactory构造方法中需要得到Resource对象，对XmlBeanDefinitionReader对象的初始化，以及使用这个对象来完成对loadBeanDefinitions的调用，就是这个调用启动从Resource中载入BeanDefinitions的过程，LoadBeanDefinitions同时也是IOC容器初始化的重要组成部分
+ClassPathResource res = new ClassPathResource("beans.xml")
+DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+XmlBeanDefinitionReader reader = new XmlBeanDefinitionReader(factory);
+reader.loadBeanDefinitions(res);
+IOC容器建立的基本步骤
+
+ApplicationContext提供了以下BeanFactory不具备的新特性
+支持不同的信息源 扩展了MessageSource接口
+访问资源 继承了DefaultResourceLoader
+支持应用事件 继承了接口ApplicationEventPublisher
+附加服务
+
+IOC容器的初始化是由refresh()方法来启动的，这个方法标志着IOC容器的正式启动，具体来说，包括Resource定位、载入和注册三个过程
+
+第一个过程是Resource定位过程，这个Resource定位指的是BeanDefinition的资源定位，它由ResourceLoader通过统一的Resource接口来完成，比如，在文件系统中可以使用FileSystemResource来进行抽象，类路径可以使用ClassPathResource,这个定位过程类似于容器寻找数据的过程，就像用水桶装水先要找到水一样
+ 
+第二个过程是BeanDefinition的载入，这个载入过程是把用户定义好的Bean表示成IOC容器内部的数据结构。而这个容器内部的数据结构就是BeanDefinition
+
+第三个过程是向IOC容器注册这些BeanDefinition的过程，这个过程是通过调用BeanDefinitionRegistry接口的实现来完成的，这个注册过程把载入过程中解析得到的BeanDefinition向IOC容器进行注册。通过分析，我们可以看到，在IOC容器内部将BeanDefinition注入到一个HashMap中去，IOC容器就是通过这个HashMap来持有这些BeanDefinition数据的
+
+这里谈的是IOC容器初始化过程，在这个过程中，一般不包含Bean依赖注入的实现。在Spring Ioc的设计中，Bean定义的载入和依赖注入是两个独立的过程。依赖注入一般发生在应用第一次通过getBean向容器索取Bean的时候。但如果我们对某个Bean设置了lazyint属性，那么这个Bean的依赖注入在IOC容器初始化时就预先完成了
+
+
+DTD 与 XSD
+DTD是一种XML约束模式语言，是XML文件的验证机制，属于XML文件组成的一部分，可以通过比较XML文档和DTD文件来看文档是否符合规范，元素和标签使用是否正确
+
+XSD是XML Schema语言，本身也是XML文件，也是用来规范和约束特定的XML文件的，其自身符合基本的XML语法结构，可以用通用的XML解析器解析它
+它包含两个部分，一部分是名称空间的URI，另一部分是该名称空间所标识的XML Schema文件位置或URL地址
+
+Spring读取xml配置文件用来检测验证模式的办法就是判断是否包含DOCTYPE，如果包含就是DTD，否则就是XSD
+
+xml文件生成Resource -> Resource获取输入流 -> 根据输入流读取xml文件内容，判断xml文件是DTD还是XSD -> 生成xml文件的Document对象 -> 获取Document对象根节点 -> 解析根节点的profile属性，如果有的话 -> 获取根节点下的子节点 -> 判断各子节点是否为default节点（import,alias,bean,beans四个节点其中之一）或者自定义标签（除了前面的四种之外的都是自定义标签），然后循环依次处理 -> 假设是bean，开始bean标签的解析 -> 解析bean标签的class、name、id、alias之类的属性 -> 创建GenericBeanDefinition -> 对解析后的BeanDefinitionHolder进行注册
+
+bean标签的解析：
+
+BeanDefinition
+BeanDefinition是配置文件<bean>元素标签在容器中的内部表现形式，BeanDefinition和<bean>中的属性是一一对应的
+BeanDefinition是一个接口，在Spring中存在三种实现：RootBeanDefinition、ChildBeanDefinition、GenericBeanDefinition，三种均继承了AbstractBeanDefinition
+
+Spring通过BeanDefinition将配置文件中的<bean>配置信息转换为容器的内部表示，并将这些BeanDefinition注册到BeanDefinitionRegistry中，Spring容器的BeanDefinitionRegistry就像是Spring配置信息的内存数据库，主要是以map的形式保存，后续操作直接从BeanDefinitionRegistry中读取配置信息
+
+解析完成的beanDefinition都会被注册到BeanDefinitionRegistry类型的实例registry中，注册又被分为两个部分，通过beanName的注册以及通过别名的注册
+对于beanDefinition的注册，就是将beanDefinition直接放入map中就好了，使用beanName作为key，除此之外，spring还做了点别的事情
+
+alias标签的解析：
+和之前bean标签中alias解析大同小异，都是将别名与beanName组成一对注册至registry中
+
+import标签的解析：
+获取resource属性所表示的路径
+解析路径中的系统属性，格式如“${user.dir}”
+判定location是绝对路径还是相对路径
+将路径包装成resource，再走一次上述的解析流程
+通知监听器，解析完成
+
+嵌入式beans标签的解析：
+与import标签类似
+
+
+自定义标签使用
+当系统配置较为复杂或者需要更多丰富控制的时候，基于标准bean来配置会显得很笨拙，一般的做法会用原生态的方式去解析定义好的XML，然后转化为配置对象，但实现起来比较繁琐，Spring提供了可扩展Schema的支持，实现步骤如下：
+创建一个需要扩展的组件
+定义一个XSD文件描述组件内容
+创建一个文件，实现BeanDefinitionParser接口，用来解析XSD文件中的定义和组件定义
+创建一个Handler文件，扩展自NamespaceHandlerSupport，目的是将组件注册到Spring容器
+编写Spring.handlers和Spring.schemas
+Spring加载自定义的大致流程是遇到自定义标签然后就去Spring.handlers和Spring.schemas中去找对应的Handler的XSD，默认位置是META—INF/下，进而找到对应的Handler以及解析器Parser，自定义与Spring中默认的标准配置不同在于Spring将自定义标签解析的工作委托给了用户去实现。Spring自己的自定义标签也是这样，例如tx、aop、context标签
+
+
+Bean的加载
+
+
+在创建单例bean的时候会存在依赖注入的情况，在创建依赖的时候为了避免循环依赖，Spring创建bean的原则是不等bean创建完成就会将创建bean的ObjectFactory提早曝光，也就是将ObjectFactory加入到缓存中，一旦下个bean创建的时候需要依赖上个Bean则直接使用ObjectFactory
