@@ -797,25 +797,34 @@ Gap Lock：间隙锁，锁定一个范围，但不包含记录本身
 Next-Key Lock：Gap Lock+Record Lock，临键锁，锁定一个范围，并且锁定记录本身
 这三种锁都是行锁和排他锁，行锁在InnoDB中是基于索引实现的，所以一旦某个加锁操作没有使用索引，那么该锁就会退化为表锁
 
-记录锁，加锁的就是某行记录，例如：
-select * from table where id = 1 for update; 或者 update table set age=50 where id=1
-其中id列必须为唯一索引列或主键列，否则上述语句加的锁会变成临键锁
-同时查询语句必须为精准匹配，不能为<,>,like等范围匹配，否则也会退化成临键锁
+Record Lock总是会去锁住索引记录，如果InnovationDB存储引擎表在建立的时候没有设置任何一个索引，那么这时InnoDB存储引擎会使用隐式的主键来进行锁定
+Next-Key Lock是结合了Gap Lock和Record Lock的一种锁定算法，这这种算法下，InnoDB对于行的查询都是采用这种锁定算法，其设计的目的是为了解决Phantom Problem幻读问题
+假设一个索引有10,11,13和20这四个值，那么该索引可能被Next-Key Locking的区间为：
+（-无穷,10]
+(10,11]
+(11,13]
+(13,20]
+(20,+无穷)
+除了next-key locking还有previous-key locking技术
 
+当查询的索引含有唯一属性时，next-key lock会降级为Record Lock
 
-临键锁，所谓的next-key lock根据sql官方文档，就是record lock + gap lock，仅此而已。分析二级索引的时候，如果for update/锁住的索引存在，则可以看成 左gap lock + record lock + 右gap lock （左gap lock + record lock = next - key lock）；如果不存在，那就是一个纯粹的gap lock。所以下面例子，锁定的就是（10,32），10和32是可以更新的。通过临建锁可以解决幻读的问题。 每个数据行上的非唯一索引列上都会存在一把临键锁。需要强调的一点是，InnoDB 中行级锁是基于索引实现的，临键锁只与非唯一索引列有关，在唯一索引列（包括主键列）上不存在临键锁。
-在事务 A 中执行如下命令：
--- 根据非唯一索引列 UPDATE 某条记录
-UPDATE table SET name = Vladimir WHERE age = 24;
--- 或根据非唯一索引列 锁住某条记录
-SELECT * FROM table WHERE age = 24 FOR UPDATE;
-不管执行了上述 SQL 中的哪一句，之后如果在事务 B 中执行以下命令，则该命令会被阻塞：
-INSERT INTO table VALUES(100, 26, 'Ezreal');
-那最终我们就可以得知，在根据非唯一索引 对记录行进行 UPDATE \ FOR UPDATE \ LOCK IN SHARE MODE 操作时，InnoDB 会获取该记录行的 临键锁。
-即事务 A在执行了上述的 SQL 后，最终被锁住的记录区间为 (10, 32)。
+表z的列b是辅助索引，当当执行下面的sql语句：
+select * from z where b=3 for update;
+由于表中有两个索引，需要分别进行锁定，对于聚集索引，其仅对列a等于5的索引加上Record Lock，而对于辅助索引，其加上的是Next-Key Lock,锁定的范围是(1,3)，
+还会对辅助索引下一个键值加上gap lock，即还有一个辅助索引范围为(3,6)的锁
 
+Gap Lock的作用是为了阻止多个事务将记录插入到同一范围内，而这会导致幻象问题产生，加入上面的例子中，会话A中用户已经锁定了b=3的记录，若此时没有Gap Lock锁定(3,6)
+，那么用户可以插入索引b列为3的记录
 
+对于唯一键值得锁定，next-key lock降级为Record Lock仅存在于查询所有的唯一索引列。若唯一的索引由多个列组成，而查询仅是查找多个唯一索引列中的其中一个，那么查询其实是range类型查询，故InnovationDB存储引擎依然使用next-key lock进行锁定
 
+Phantom Problem
+在MySQL默认RR的隔离级别下，InnoDB存储引擎采用Next-Key Locking机制来避免幻象问题，这点不同于其他的数据库，如Oracle需要在Serializable的隔离级别下才能
+解决幻象问题
+幻象问题是指在同一事务下，连续执行两次同样的SQL语句可能导致不同的结果，第二次SQL语句可能会返回之前不存在的行
+注意：InnoDB仅在RR隔离级别下采用Next-Key Locking，在READ COMMITTED下，只采用Record Lock，则不能解决幻象问题
+多个事务并发对同一条记录执行select...lock in share mode，只有一个事务会成功，其余的会抛出死锁的错误
 
 count（*）、count（1）和count（列名）
 count(*)包括了所有的列，相当于行数，在统计结果的时候，不会忽略列值为NULL  
