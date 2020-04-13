@@ -917,6 +917,43 @@ undo log是逻辑日志，因此只是将数据库逻辑地恢复到原来的样
 ，对于每个Delete，会执行一个Insert，对于每个update，会执行一个相反的update
 除了回滚操作，undo的另一个作用是MVCC，即在InnoDB存储引擎中MVCC的实现是通过undo来完成。当用户读取一行记录时，若该记录已经被其他事务占用，当前事务可以通过undo
 log读取之前的行版本信息，以此实现非锁定读取，undo log本身也会产生redo log
+事务提交后并不能马上删除undo log，这是因为可能还有其他事务需要通过undo log来得到行记录之前的版本
+
+purge
+delete和update操作可能并不直接删除原有的数据，在执行Delete from t where a=1;后记录并没有被删除，还是存在于B+树中，对辅助索引同样没有做任何处理，甚至没有
+产生Undo log，而真正删除这行记录的操作其实被延时了，最终在purge操作中完成。
+purge用于最终完成delete和update操作，这样设计师因为InnoDB存储引擎支持MVCC，所以记录不能在事务提交时立即进行处理，这时其他事务可能正在引用这行，purge会进行判断
+若该行记录已不被任何其他事务引用，那么就可以进行真正的delete操作
+
+在MySQL命令行的默认设置下，事务都是自动提交的，即执行SQL语句后就会马上执行Commit操作，因此要显式地开启一个事务需使用命令BEGIN、START TRANSACTION或者执行命令
+SET AUTOCOMMIT=0，禁用当前会话的自动提交。每个数据库厂商自动提交的设置都不相同
+START TRANSACTION | BEGIN:显式地开启一个事务
+COMMIT | COMMIT WORK:提交事务
+ROLLBACK | ROLLBACK WORK：回滚事务
+SAVEPOINT identifer:创建一个保存点
+RELEASE SAVEPOINT identifer:删除一个事务的保存点
+ROLLBACK TO [SAVEPOINT] identifer: 把事务回滚到标记点
+SET TRANSACTION:设置事务隔离级别
+
+这里有两点需要注意的地方：
+1.同一个事务内，一条语句失败并抛出异常时，并不会导致先前已经执行的语句自动回滚，所有的执行都会得到保留，必须由用户自己来决定是否对其进行提交或回滚的操作
+2.ROLLBACK TO SAVEPOINT虽然也有ROLLBACK，但其并不是真正地结束一个事务，之后也需要显式地运行COMMIT或ROLLBACK命令
+
+隐式提交的SQL语句（无法回滚）
+DDL语句（在sql server中 DDL语句是可以回滚的，MySQL和Oracle不可以）
+修改MySQL架构语句
+数据库管理语句
+
+事务的隔离级别
+大部分数据库系统都没有提供真正的隔离性，ISO制定了四种事务隔离级别的标准，但是很少有数据库厂商遵循这些标准，比如Oracle数据库就不支持READ UNCOMMITED和
+REPETABLE READ隔离级别
+
+InnoDB默认支持的隔离级别是REPETABLE READ，但是与标准SQL不同的是，InnoDB存储引擎在REPETABLE READ事务隔离级别下，使用Next-Key Lock锁的算法，因此避免幻读的产生，
+这与其他数据库系统是不同的，所以说，InnoDB在默认的事务隔离级别下已经能完全保证事务的隔离性要求，即达到SERIALIZABLE隔离级别
+隔离级别越低，事务请求的锁越少或保持锁的时间就越短，这也是为什么大多数数据库系统默认的事务隔离级别是READ COMMITED
+
+在SERIALIZABLE隔离级别，InnoDB会对每个SELECT语句后自动加上Lock in share mode，快照读会失效，这时事务隔离级别SERIALIZABLE符合数据库理论上的要求，
+因为InnoDB在REPETABLE READ隔离级别下就可以达到SERIALIZABL级别，所以一般不会使用SERIALIZABL隔离级别
 
 count（*）、count（1）和count（列名）
 count(*)包括了所有的列，相当于行数，在统计结果的时候，不会忽略列值为NULL  
