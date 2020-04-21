@@ -194,5 +194,13 @@ Spring加载自定义的大致流程是遇到自定义标签然后就去Spring.h
 
 Bean的加载
 
-
 在创建单例bean的时候会存在依赖注入的情况，在创建依赖的时候为了避免循环依赖，Spring创建bean的原则是不等bean创建完成就会将创建bean的ObjectFactory提早曝光，也就是将ObjectFactory加入到缓存中，一旦下个bean创建的时候需要依赖上个Bean则直接使用ObjectFactory
+在getBean方法内部一开始就会直接尝试从缓存或者singletonFactories中的ObjectFactory中获取
+注意，只有在单例情况才会尝试解决循环依赖，原型模式下，如果存在A中有B的属性，B中有A的属性，那么当依赖注入的时候，就会产生当A还未创建完的时候因为对于B的创建再次
+返回创建A，造成循环依赖
+bean加载主要流程(doGetBean方法)
+1.转换对应的beanName transformedBeanName(name)去除FactoryBean的修饰符或者取指定alias所表示的最终beanName
+2.尝试从缓存中加载单例
+单例在Spring的同一个容器内只会被创建一次，后续再获取bean，就直接从单例缓存中获取了
+3.bean的实例化
+如果从缓存中得到了bean的原始状态，则需要对bean进行实例化，这里有必要强调一下，缓存中记录的只是最原始的bean状态
