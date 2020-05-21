@@ -1,0 +1,19 @@
+JVM
+1. java锁（偏向锁、自选锁、锁升级、重量级锁、用户态和内核态、可重入锁）
+2. volatile（指令重排序、内存屏障）
+3. 线程池（各个参数含义，生命周期，线程创建销毁过程）
+4. GC（YGC、FGC、Major GC、Minor GC、ParNew、CMS、G1、JVM内存结构） 
+
+
+Spring
+1. Bean解析
+2. Bean加载（生命周期）
+3. AOP
+
+redis
+1. 事务
+2. 主从集群（全量同步、增量同步）
+3. 哨兵
+
+rocketMQ
+1. OffSet
