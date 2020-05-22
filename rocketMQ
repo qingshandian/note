@@ -1,0 +1,321 @@
+消息队列的作用：1.应用解耦 2.流量消峰 3.消息分发 4.保证最终一致性
+
+rocketMQ是使用java语言开发的，比起kafka的scala语言和rabbitMQ的erLang语言，更容易找到技术人员进行定制开发
+
+四个角色：Producer、Consumer、Broker和NameServer，启动顺序是先启动NameServer后启动Broker
+
+一个分布式消息队列中间件部署好以后，可以给很多业务提供服务，同一个服务也有不同类型的消息要投递，这些不同类型的消息以不同的Topic名称来区分，有了Topic之后还需要解决性能问题，如果一个Topic要发送和接收的数据量非常大，需要能支持增加并行处理的机器来提高处理速度，这时候一个Topic可以根据需求设置一个或多个Message Queue，类似于分区或Partition，Topic有了消息队列后可以并行地向各个Message Queue发送，消费者也可以并行地从多个Message Queue读取消息并消费，简单来说，topic是mq对业务的分类，Message Queue是技术上的分类
+
+broker配置文件详解
+
+1. namesrvAddr=192.168.100.131:9876; 192.168.100.132:9876 NameServer的地址，可以是多个
+
+2.brokerClusterName=DefaultCluster Cluster的地址，如果集群机器数比较多，可以分成多个Cluster，每个Cluster供一个业务使用
+
+3.brokerName=broker-a Broker的名称，Master和Slave通过使用相同的Broker名称来表明相互关系，以说明某个Slave是哪个Master的Slave
+
+4.brokerId=0 一个Master Broker可以有多个Slave，0表示Master，大于0表示不同Slave的ID
+
+5.fileReservedTime=48 在磁盘上保存消息的时长，单位是小时，自动删除超时的消息
+
+6.deleteWhen=04 与fileReservedTime参数对应，表明在几点做消息删除动作，默认值04表示凌晨4点
+
+7.brokerRole=SYNC_MASTER brokerRole有3种:SYNC_MASTER、ASYNC_MASTER、SLAVE。关键词SYNC和ASYNC表示Master和Slave之间同步消息的机制，SYNC的意思是当Slave和Master消息同步完成后，再返回发送成功的状态
+
+8.flushDiskType=ASYNC_FLUSH 刷盘策略，分为SYNC和ASYNC，代表同步和异步刷盘，同步刷盘情况下，消息真正写入磁盘后再返回成功状态，异步刷盘情况下，消息写入page_cache后就返回成功状态
+
+9.listenPort=10911 Broker监听的端口号，如果一台机器上启动了多个Broker，则要设置不同的端口号，避免冲突
+
+10.storePathRootDir=/home/rmq/store-a 存储消息以及一些配置信息的根目录
+
+这些配置参数，在Broker启动的时候生效，如果启动后有更改，要重启Broker
+
+Consumer和Producer都必须设置GroupName、NameServer地址以及端口号，然后指明要操作的Topic名称，最后进入发送和接收逻辑
+
+订阅组在提高系统的高可用性和吞吐量方面扮演着重要的角色，比如用Clustering模式消费一个Topic里的消息内容时，可以启动多个消费者并行消费，每个消费者只消费Topic里消息的一部分，以此提高消费速度，这个时候就是通过订阅组来指明哪些消费者是同一组，同一组的消费者共同消费同一个Topic里的内容
+
+Topic的路由信息是指某个Topic所在的Broker相关信息，客户端可以通过NameServer来获取这些信息
+
+一条消息被发送到RocketMQ后，默认会带上发送的时间戳，所以我们可以根据估计的时间来查询消息，指令是printMsg
+
+根据使用者对读取操作的控制情况，消费者可分为两种类型，一个是DefaultMQPushConsumer由系统控制读取操作，收到消息后自动调用传入的处理方法来处理，另一个是DefaultMQPullConsumer读取操作中的大部分功能由使用者自主控制
+
+DefaultMQPushConsumer需要设置三个参数，一个是这个Consumer的GroupName，二是NameServer的地址和端口号，三是Topic的名称
+
+1.Consumer的GroupName用于把多个Consumer组织到一起，提高并发处理能力，GroupName需要和消息模式配合使用
+
+RocketMQ支持两种消息模式：Clustering和Broadcasting
+
+1.在Clustering模式下，同一个ConsumerGroup里的每个Consumer只消费所订阅消息的一部分内容，同一个组里所有的Consumer消费的内容合起来才是所订阅Topic内容的整体，从而达到负载均衡的目的
+
+2.在Broadcasting模式下，同一个ConsumerGroup里的每个Consumer都能消费到所订阅Topic的全部消息，也就是一个消息会被多次分发，被多个Consumer消费
+
+2.NameServer的地址和端口号，可以填写多个，用分号隔开，达到消除单点故障的目的
+
+3.Topic名称用来标识消息类型，需要提前创建，如果不需要消费某个Topic下的所有消息，可以通过指定消息的tag进行消息过滤，比如：Consumer.subscribe("TopicTest", "tag1 || tag2 || tag3")，表示这个Consumer要消费TopicTest下带有tag1或tag2或tag3的消息
+
+DefaultMQPushConsumer是通过长轮询的方式达到Push效果的方法
+
+Push方式是Server端接收到消息后，主动把消息推送给Client端，实时性高，对于一个提供队列服务的Server来说，用Push方式主动推送有很多弊端，首先是加大Server端的工作量，进而影响Server的性能，其次，Client的处理能力各不相同，Client的状态不受Server控制，如果Client不能及时处理Server推送过来的消息，会造成各种潜在问题
+
+Pull方式是Client端循环地从Server端拉取消息，主动权在Client手里，自己拉取到一定量消息后，处理妥当了再接着取，Pull方式的问题是循环拉取消息的间隔不好设定，间隔太短就处在一个忙等的状态，浪费资源，间隔太长，又不能及时处理消息
+
+长轮询方式通过Client端和Server端的配合，达到既有Pull的优点，又能达到保证实时性的目的
+
+Broker最长阻塞时间，默认设置是15秒，注意是Broker在没有新消息的时候才阻塞，有消息会立刻返回
+
+服务端接收到新消费消息请求后，如果队列里没有新消息，并不急于返回，通过一个循环不断查看状态，每次waitForRunning一段时间（默认是5秒），然后再Check，默认情况下当Broker一直没有新消息，当第三次Check的时候，等待时间超过Request里面的Broker-SuspendMaxTimeMillis就返回空结果。在等待的过程中，Broker收到了新的消息后会直接调用notifyMessageArriving函数返回请求结果。长轮询的核心是，Broker端HOLD住客户端过来的请求一小段时间，在这个时间内有新消息到达，就利用现有的连接立刻返回消息给Consumer，长轮询的主动权还是掌握在Consumer手中，Broken即使有大量消息积压，也不会主动推送给Consumer，长轮询方式的局限性，是在HOLD住Consumer请求的时候需要占用资源，它适合用在消息队列这种客户端连接数可控的场景中
+
+DefaultMQPushConsumer的流量控制
+
+PushConsumer的核心还是Pull方式，所以采用这种方式的客户端能够根据自身的处理速度调整获取消息的操作速度，因为采用多线程处理方式实现，流量控制的方面比单线程要复杂得多
+
+PushConsumer有个线程池，消息处理逻辑在各个线程里同时执行
+
+Pull获得的消息，如果直接提交到线程池里执行，很难监控和控制，比如，如何得知当前消息堆积的数量？RocketMQ定义了一个快照类ProcessQueue来解决这些问题，在PushConsumer运行的时候，每个Message Queue都会有个对应的ProcessQueue对象，保存了这个Message Queue消息处理状态的快照
+
+ProcessQueue对象里主要的内容是一个TreeMap和一个读写锁。TreeMap里以Message Queue的OffSet作为Key，以消息内容的引用为Value，保存了所有从MessageQueue获取到，但是还未被处理的消息，读写锁控制着多个线程对TreeMap对象的并发访问
+
+PushConsumer会判断获取但还未处理的消息个数，消息总大小，Offset的跨度，任何一个值超过设定的大小就隔一段时间再拉取消息，从而达到流控的目的
+
+DefaultMQPullConsumer
+
+1.获取Message Queue并遍历
+
+一个Topic包括多个Message Queue，如果这个Consumer需要获取Topic下所有的消息，就要遍历所有的Message Queue
+
+2.维护OffsetStore
+
+从一个Message Queue里拉取消息的时候，要传入OffSet参数，随着不断读取消息，OffSet会不断增长，这个时候由用户负责把OffSet存储下来
+
+3.根据不同的消息状态做不同的处理
+
+拉取消息的请求发出后，会返回FOUND、NO_MATCHED_MSG、NO_NEW_MSG、OFFSET_ILLEGAL四种状态，需要根据每个状态做不同的处理，比较重要的两个状态是FOUNT和NO_NEW_MSG，分别表示获取到消息和没有新的消息
+
+Consumer的启动、关闭流程
+
+对于PullConsumer来说，使用者主动权很高，可以根据实际需要暂停、停止、启动消费过程。需要注意的是OffSet的保存，要在程序的异常处理部分增加把OffSet写入磁盘方面的处理，记准了每个Message Queue的OffSet，才能保证消息消费的准确性
+
+DefaultMQPushConsumer的退出，要调用shutdown()函数，以便释放资源、保存OffSet等，这个调用要加到Consumer所在应用的退出逻辑中。PushConsumer在启动时，会做各种配置检查，然后连接NameServer获取Topic信息，启动时如果遇到异常，比如无法连接NameServer，程序仍然可以正常启动不报错，DefaultMQPushConsumer会不断尝试重新连接
+
+不同类型的生产者
+
+生产者向消息队列里写入消息，不同的业务场景需要生产者采用不同的写入策略，比如同步发送、异步发送、延迟发送、发送事务消息等
+
+1.DefaultMQProducer发送消息要经过五个步骤
+
+1.设置Producer的GroupName 2.设置InstanceName，当一个JVM需要启动多个Producer的时候，通过设置不同的InstanceName来区分，不设置的话系统使用默认名称DEFAULT 3.设置发送失败重试次数，当网络出现异常的时候，这个次数影响消息的重复投递次数。4.设置NameServer地址 5.组装消息并发送
+
+消息的发送有同步和异步两种方式，消息发送的返回状态有如下四种：FLUSH_DISK_TIMEOUT、FLUSH_SLAVE_TIMEOUT、SLAVE_NOT_AVAILABLE、SEND_OK，不同状态在不同的刷盘策略和同步策略的配置下含义是不同的。
+
+FLUSH_DISK_TIMEOUT：表示没有在规定时间内完成刷盘（需要Broker的刷盘策略被设置成SYNC_FLUSH才会报这个错误）
+
+FLUSH_SLAVE_TIMEOUT：表示在主备方式下，并且Broker被设置成SYNC_MASTER方式，没有在设定时间内完成主从同步
+
+SLAVE_NOT_AVAILABLE：同上，但是没有找到被配置成slave的Broker
+
+SEND_OK：没有发生上面列出的三个问题状态就是SEND_OK
+
+写一个高质量的生产者程序，重点在于对发送结果的处理，要充分考虑各种异常，写清对应的处理逻辑
+
+自定义消息发送规则：一个Topic会有多个Message Queue，如果使用Producer的默认配置，这个Producer会轮流向各个Message Queue发送消息。Consumer在消费消息的时候，会根据负载均衡策略，消费被分配到的Message Queue，如果不经过特定的设置，某条消息被发往哪个Message Queue，被哪个Consumer消费是未知的，发送消息的时候，把MessageQueueSelector的对象作为参数，根据传入的Object参数，或者根据Message消息内容确定把消息发往哪个Message Queue
+
+RocketMQ的事务消息，是指发送消息事件和其他事件需要同时成功或同时失败，详细逻辑如下：
+
+1.发送方向RocketMQ发送待确认消息 2.RocketMQ将收到的待确认消息持久化成功后，向发送方回复消息已经发送成功，此时第一阶段消息发送完成 3.发送方开始执行本地事件逻辑 4.发送方根据本地事件执行结果向RocketMQ发送二次确认(Commit或Rollback)消息，RocketMQ收到COMMIT状态则将第一阶段消息标记为可投递，订阅方将能够收到该消息，收到Rollback状态则删除第一阶段的消息，订阅方接收不到该消息 5.如果出现异常情况，步骤4提交的二次确认最终未到达RocketMQ，服务器在经过固定时间段后将对"待确认"消息发起回查请求 6.发送方收到消息回查请求后，通过检查对应消息的本地事件执行结果返回COMMIT或ROLLBACK状态 7.RocketMQ收到回查请求后，按照步骤4的逻辑处理
+
+注意：由于事务消息会造成磁盘Cache的脏页过多，降低系统的性能，这部分功能已经在4.x版本中移除了
+
+OffSet
+
+实际运行中的系统，难免会遇到重新消费某条消息，跳过一段时间内的消息等情况，这些异常情况的处理，都和OffSet有关
+
+RocketMQ中，一种类型的消息会放到一个Topic里，为了能够并行，一般一个Topic会有多个Message Queue，OffSet是指某个Topic下的一条消息在某个Message Queue里的位置，通过OffSet的值可以定位到这条消息，或者指示Consumer从这条消息开始向后继续处理
+
+OffSet主要分为本地文件类型和Broker代存类型两种，对于CLUSTERING模式，也就是同一个Consumer group里的多个消费者每人消费一部分，各自收到的消息内容不一样，这种情况下，由Broker端存储和控制OffSet的值，使用RemoteBrokerOffSetStore结构
+
+在BROADCASTING模式下，每个Consumer都收到这个Topic的全部消息，各个Consumer间相互没有干扰，RocketMQ使用LocalFileOffSetStore，把OffSet存到本地。
+
+OffSetStore使用Json格式存储，例如：{"OffsetTable":{"brokerName":"localhost", "QueueId":1, "Topic":"broker1"}: 1}
+
+在使用DefaultMQPushConsumer（CLUSTER模式）时，我们不用关心OffSetStore，如果是广播模式下，如果没有做持久化存储，可能因为程序的异常或重启而丢失OffSet
+
+DefaultMQPushConsumer类里有个函数用来设置从哪儿开始消费消息。比如setConsumerFromWhere(ConsumeFromWhere.CONSUME_FROM_FIRST_OFFSET)，这个是从设置的offset开始读取，还可以设置从某个时间点开始消费消息，时间戳是精确到秒，但是设置读取位置不是每次都有效，它的优先级默认在上述讲的OffSet Store机制后面，大部分情况下这个设置在Consumer Group初次启动时有效，如果消费者正常运行后又被停止，然后再启动，会接着上次的OffSet开始消费
+
+对于一个消息队列集群来说，系统由很多台机器组成，每个机器的角色、IP地址都不相同，而且这些信息是变动的。这种情况下，如果一个新的Producer或Consumer加入，怎么配置连接信息？NameServer的存在主要是为了解决这类问题，由NameServer维护这些配置信息、状态信息、其他角色都通过NameServer来协同执行
+
+NameServer是整个消息队列中的状态服务器，集群的各个组件通过它来了解全局的信息，同时，各个角色的机器都要定期向NameServer上报自己的状态，超时不上报的话，NameServer会认为某个机器出故障不可用了，其他的组件会把这个机器从可用列表里移除
+
+NameServer可以部署多个，相互之间独立，其他角色同时向多个NameServer机器上报状态信息，从而达到热备份的目的，NameServer本身是无状态的，也就是说NameServer中的Broker、Topic等状态信息不会持久化存储，都是由各个角色定时上报并存储到内存中的（NameServer支持配置化参数的持久化，一般用不到）
+
+集群状态的存储，RouteInfoManager类中的5个属性
+
+1.HashMap<String, List<QueueData>> topicQueueTable：key是topic的名称，value是个QueueData队列，队列的长度等于这个topic数据存储的Master Broke的个数，QueueData里存储着broker的名称、读写queue的数量、同步标识等
+
+2. HashMap<String, BrokerData> brokerAddrTable：key是brokerName，相同名称的Broker可能存在多台机器，一个Master和多个Slave，所以value存储一个Master Broker和多个Slave Broker的地址信息
+
+3.HashMap<String, Set<String, BrokerName>> clusterAddrTable：存储的是集群中Cluster的信息，就是一个Cluster名称对应一个由BrokerName组成的集合
+
+4.HashMap<String, BrokerLiveInfo> brokerLiveTable：key表示一台机器，value存储这台机器的实时状态，包括上次更新状态的时间戳，NameServer会定期检查这个时间戳，超时没有更新就认为这个Broker无效了，将其从Broker列表里清除
+
+5.HashMap<String, List<String>> filterServerTable：Filter Server是过滤服务器
+
+NameServer的主要工作就是维护这五个变量中存储的信息
+
+当NameServer和Broker的长连接断点以后，onChannelDestroy函数会被调用，把这个Broker的信息清理出去，NameServer还会每隔10秒钟检查一次Broker更新的时间戳，时间戳超过两分钟没有更新则认为Broker已失效，触发清理逻辑
+
+创建Topic
+
+创建命令可以指定在哪个Broker上创建本Topic的Message Queue或者在哪个Cluster下面所有的Master Broker上创建这个Topic的Message Queue，从而达到高可用性的目的，创建Topic的命令被发往对应的Broker，Broker接到创建Topic的请求后，执行具体的创建逻辑，执行完后向NameServer发送注册信息，NameServer完成创建Topic的逻辑后，其他客户端才能发现新增的Topic，NameServer首先更新Broker信息，然后对每个Master角色的Broker创建一个QueueData对象，如果是新建Topic，就是添加QueueData对象，如果是修改Topic，就是把旧的QueueData删除，加入新的QueueData
+
+为何不用ZK？
+
+ZK的功能很强大，包括自动Master选举等，RocketMQ的架构设计决定了它不需要进行Master选举，用不到这些复杂的功能，只需要一个轻量级的元数据服务器就足够了，中间件对稳定性要求很高，RocketMQ的NameServer只有很少的代码，容易维护，所以不需要再依赖另一个中间件，从而减少整体维护成本
+
+RocketMQ自己定义了一个通信协议，使得模块间传输的二进制消息和有意义的内容之间互相转换
+
+<- length -> <- header length -> <- header data -> <- body data ->
+
+RocketMQ是基于Netty实现通信的
+
+消息存储和发送
+
+分布式队列因为有高可靠性的要求，所以数据要通过磁盘进行持久化存储。目前的高性能磁盘，顺序写速度可以达到600MB/s，超过了一般网卡的传输速度，但是磁盘随机写的速度只有大概100KB/s，因此好的消息队列系统会比普通的消息队列系统速度快多个数量级
+
+Linux操作系统分为用户态和内核态，文件操作、网络操作需要涉及这两种形态的切换，免不了进行数据复制，一台服务器把本机磁盘文件的内容发送到客户端，一般分为两个步骤：
+
+1.read（file, tmp_buf, len） 读取本地文件内容 2.write(socket, tmp_buf, len) 将读取的内容通过网络发送出去
+
+tmp_buf是预先申请的内存，这两个看似简单的操作，实际进行了4次数据复制，分别是：从磁盘复制数据到内核态内存，从内核态内存复制到用户态内存，然后从用户态内存复制到网络驱动的内核态内存，最后是从网络驱动的内核态内存复制到网卡中进行传输。通过使用mmap的方式，可以省去向用户态的内存复制，提高速度。这种机制在Java中是通过MappedByteBuffer实现的，RocketMQ充分利用了上述特性，也就是所谓的“零拷贝”技术，提高消息存盘和网络发送的速度
+
+因为操作系统的资源是有限的，如果访问资源的操作过多，必然会消耗过多的资源，而且如果不对这些操作加以区分，很可能造成资源访问的冲突。所以，为了减少有限资源的访问和使用冲突，Unix/Linux的设计哲学之一就是：对不同的操作赋予不同的执行等级，就是所谓特权的概念。简单说就是有多大能力做多大的事，与系统相关的一些特别关键的操作必须由最高特权的程序来完成。Intel的X86架构的CPU提供了0到3四个特权级，数字越小，特权越高，Linux操作系统中主要采用了0和3两个特权级，分别对应的就是内核态和用户态。运行于用户态的进程可以执行的操作和访问的资源都会受到极大的限制，而运行在内核态的进程则可以执行任何操作并且在资源的使用上没有限制。很多程序开始时运行于用户态，但在执行的过程中，一些操作需要在内核权限下才能执行，这就涉及到一个从用户态切换到内核态的过程。比如C函数库中的内存分配函数malloc()，它具体是使用sbrk()系统调用来分配内存，当malloc调用sbrk()的时候就涉及一次从用户态到内核态的切换，类似的函数还有printf()，调用的是wirte()系统调用来输出字符串，等等。
+
+从宏观上来看，Linux操作系统的体系架构分为用户态和内核态（或者用户空间和内核）。内核从本质上看是一种软件——控制计算机的硬件资源，并提供上层应用程序运行的环境。用户态即上层应用程序的活动空间，应用程序的执行必须依托于内核提供的资源，包括CPU资源、存储资源、I/O资源等。为了使上层应用能够访问到这些资源，内核必须为上层应用提供访问的接口：即系统调用。系统调用是操作系统的最小功能单位，我们可以把系统调用看成是一种不能再化简的操作（类似于原子操作，但是不同概念），有人把它比作一个汉字的一个“笔画”，而一个“汉字”就代表一个上层应用，我觉得这个比喻非常贴切。因此，有时候如果要实现一个完整的汉字（给某个变量分配内存空间），就必须调用很多的系统调用。如果从实现者（程序员）的角度来看，这势必会加重程序员的负担，良好的程序设计方法是：重视上层的业务逻辑操作，而尽可能避免底层复杂的实现细节。库函数正是为了将程序员从复杂的细节中解脱出来而提出的一种有效方法。它实现对系统调用的封装，将简单的业务逻辑接口呈现给用户，方便用户调用，从这个角度上看，库函数就像是组成汉字的“偏旁”。这样的一种组成方式极大增强了程序设计的灵活性，对于简单的操作，我们可以直接调用系统调用来访问资源，如“人”，对于复杂操作，我们借助于库函数来实现，如“仁”。显然，这样的库函数依据不同的标准也可以有不同的实现版本，如ISO C 标准库，POSIX标准库等。
+
+Shell是一个特殊的应用程序，俗称命令行，本质上是一个命令解释器，它下通系统调用，上通各种应用，通常充当着一种“胶水”的角色，来连接各个小功能程序，让不同程序能够以一个清晰的接口协同工作，从而增强各个程序的功能。同时，Shell是可编程的，它可以执行符合Shell语法的文本，这样的文本称为Shell脚本，通常短短的几行Shell脚本就可以实现一个非常大的功能，原因就是这些Shell语句通常都对系统调用做了一层封装。为了方便用户和系统交互，一般，一个Shell对应一个终端，终端是一个硬件设备，呈现给用户的是一个图形化窗口。我们可以通过这个窗口输入或者输出文本。这个文本直接传递给shell进行分析解释，然后执行
+
+当一个任务（进程）执行系统调用而陷入内核代码中执行时，我们就称进程处于内核运行态（或简称为内核态）。此时处理器处于特权级最高的（0级）内核代码中执行。当进程处于内核态时，执行的内核代码会使用当前进程的内核栈。每个进程都有自己的内核栈。当进程在执行用户自己的代码时，则称其处于用户运行态（用户态）。即此时处理器在特权级最低的（3级）用户代码中运行。
+
+熟悉Unix/Linux系统的人都知道，fork的工作实际上是以系统调用的方式完成相应功能的，具体的工作是由sys_fork负责实施。其实无论是不是Unix或者Linux，对于任何操作系统来说，创建一个新的进程都是属于核心功能，因为它要做很多底层细致地工作，消耗系统的物理资源，比如分配物理内存，从父进程拷贝相关信息，拷贝设置页目录页表等等，这些显然不能随便让哪个程序就能去做，于是就自然引出特权级别的概念，显然，最关键性的权力必须由高特权级的程序来执行，这样才可以做到集中管理，减少有限资源的访问和使用冲突。
+
+内核态与用户态程序执行的代码不同，执行时读取的数据地址也不相同，所以在切换时，需要把数据来回复制
+
+RocketMQ消息存储
+
+RocketMQ消息的存储是由ConsumeQueue和CommitLog配合完成的，消息真正的物理存储文件是CommitLog，ConsumeQueue是消息的逻辑队列，类似数据库的索引文件，存储的是指向物理存储的地址。每个Topic下的每个Message Queue都有一个对应的ConsumeQueue文件。文件地址在\consumequeue\topicName\queueId\fileName
+
+CommitLog以物理文件的方式存放，每台Broker上的CommitLog被本机器所有ConsumeQueue共享，文件地址：${user.home}\store\${commitLog}\${fileName}，在CommitLog中，一个消息的存储长度是不固定的，RocketMQ采取一些机制，尽量向CommitLog中顺序写，但是随机读
+
+存储机制这样设计有以下几个好处：
+
+1.CommitLog顺序写，可以大大提高写入效率
+
+2.虽然是随机读，但是利用操作系统的pageCache机制，可以批量地从磁盘读取，作为cache存到内存中，加速后续的读取速度
+
+3.为了保证完全的顺序写，需要ConsumeQueue这个中间结构，因为ConsumeQueue里只存偏移量信息，所以尺寸是有限的，在实际情况中，大部分的ConsumeQueue能够被全部读入内存，所有这个中间结构的操作速度很快，可以认为是内存读取的速度，此外为了保证CommitLog和ConsumeQueue的一致性，CommitLog里存储了Consume Queue、Message Key、Tag等所有信息，即使ConsumeQueue丢失，也可以通过commitLog完全恢复出来
+
+RocketMQ分布式集群是通过Master和Slave的配合达到高可用性的，Master和Slave的区别：在Broker的配置文件中，参数brokerId的值为0表明这个Broker是Master，大于0表明这个Broker是Slave，同时BrokerRole参数也会说明这个Broker是Master还是Slave，Master角色的Broker支持读和写，Slave角色的Broker仅支持读，也就是Producer只能和Master角色的Broker连接写入消息，Consumer可以连接Master角色的Broker也可以连接Slave角色。
+
+在Consumer的配置文件中，并不需要设置是从Master读还是从Slave读，当Master不可用或者繁忙的时候，Consumer会被自动切换到从Slave读，有了自动切换Consumer这种机制，当一个Master角色的机器出现故障后，Consumer仍然可以从Slave读取消息，这就达到了消费端的高可用性
+
+如何达到发送端的高可用性？在创建Topic的时候，把Topic的多个Message Queue创建在多个Broker组上，这样当一个Broker组的Master不可用后，其他组的Master仍然可用，RocketMQ目前还不支持把Slave自动转成Master，如果需要可以手动停止Slave，更改配置文件后再启动
+
+RocketMQ 的消息是存储到磁盘上的，这样既能保证断电后恢复，又可以让存储的消息 超出内存的限制 RocketMQ 为了提高性能，会尽可能地保证磁盘的顺序写 消息在通过 Producer 写人 RocketMQ 的时候，有两种写磁盘方式
+
+异步刷盘方式：在返回写成功状态时 ，消息可能只是被写人了内存的PAGECACHE ，写操作的返回快，吞吐量大 ；当内存里的消息 积累到一定程度时 ，统一触发写磁盘动作，快速写人
+
+同步刷盘方式：在返回写成功状态时，消息已经被写人磁盘 具体流程是，消息、写入内存的 PAGECACHE 后，立刻通知刷盘线程刷盘，然后等待刷盘完成，刷盘线程执行完成后唤醒等待的线程，返回消息写成功的状态
+
+如果一个 Broker 组有 Master Slave, 消息需要从 Master 复制到 Slave上，有同步和异步两种复制方式 同步复制方式是 Master Slave 均写成功后才反馈给客户端写成功状态；异步复制方式是只要 Master 写成功即可反馈给客户端写成功状态
+
+这两种复制方式各有优劣，在异步复制方式下，系统拥有较低的延迟和较高的吞吐量，但是如果 Master 出了故障，有些数据因为没有被写人 Slave ，有可能会丢失；在同步复制方式下，如果 Master 出故障， Slave 上有全部的备份数据，容易恢复，但是同步复制会增大数据写人延迟，降低系统吞吐量
+
+实际应用中要结合业务场景，合理设置刷盘方式和主从复制方式，尤其是SYNC FLUSH 方式，由于频繁地触发磁盘写动作， 会明显降低性能。通常情况下，应该把 Master和Save 置成 ASYNC FLUSH 的刷盘方式，主从之间配置成 SYNC MASTER 的复制方式，这样即使有一台机器出故障， 仍然能保证数据不丢，是个不错的选择
+
+顺序消息分为全局顺序消息和部分顺序消息，全局顺序消息指某个 Topic 下的所有消息都要保证顺序；部分顺序消息只要保证每一组消息被顺序消费即可
+
+RocketMQ 在默认情况下不保证顺序，比如创建一个 Topic ，默认八个写队列，八个读队列。这时候一条消息可能被写入任意一个队列里；在数据的读取过程中，可能有多个 Consumer ，每个 Consumer 也可能启动多个线程并行处理，所以消息被哪个 Consumer 消费，被消费的顺序和写人的顺序是否一致是不确定的。
+
+要保证全局顺序消息，需要先把 Topic 的读写队列数设置为一，然后Producer和Consumer 的并发设置也要是一。简单来说，为了保证整个Topic的全局消息有序，只能消除所有的并发处理，各部分都设置成单线程处理 这时高并发、高吞吐量的功能完全用不上了。
+
+在实际应用中，更多的是像订单类消息那样，只需要部分有序即可。在这种情况下，我们经过合适的配置，依然可以利用 RocketMQ 高并发 、高吞吐量的能力
+
+部分顺序消息
+
+要保证部分消息有序，需要发送端和消费端配合处理。在发送端，要做到把同一业务ID的消息发送到同一个Message Queue，在消费过程中，要做到从同一个Message Queue读取的消息不被并发处理，这样才能达到部分有序
+
+发送端使用 MessageQueueSelector 类来控制把消息发往哪个 MessageQueue，
+
+消费端通过使用MessageListenerOrderly类来解决单 MessageQueue 的消息被并发处理的问题，
+
+在MessageListenerOrderly的实现中，为每个 Consumer Queue 加个锁，消费每个消息前，需要先获得这个消息对应的 Consumer Queue 所对应的锁，这样保证了同一时间，同一个 Consumer Queue 的消息不被并发消 费，但不同 Consumer Queue 的消息可以并发处理
+
+对分布式消息队列来说，同时做到确保一定投递和不重复投递是很难的，也就是所谓的“有且仅有一次” 在鱼和熊掌不可兼得的情况下， RocketMQ选择了确保一定投递，保证消息不丢失，但有可能造成消息重复。解决消息重复有两种方法：第一种方法是保证消费逻辑的幕等性（多次调用和一次调用效果相同）；另一种方法是维护一个巳消费消息的记录，消费前查询这个消息是否被消费过。这两种方法都需要使用者自己实现。
+
+有四种方式可设置 NameServer 的地址， 下面按优先级由高到低依次介绍：
+
+1 ）通过代码设置，比如在 Producer 中，通过 Producer.setNamesrv Addr(”name-server 1-ip:port;name-server2-ip：port”）来设置。在mqadmin 命令行工具中，是通过－n name-server-ipl :port;name-server- 2:port 参数来设置的，如果自定义了命令行工具，也可以通过 defaultMQAdminExt.setNamesrvAddr（” name-server-ip：port;name-server2-ip：port”）来设置
+
+2）使用 Java 启动参数设置，对应的option是 rocketmq.namesrv.addr
+
+3）通过 Linux 环境变量设置，在启动前设置变量： NAMESRV ADDR
+
+4）通过 HTTP 服务来设置，当上述方法都没有使用，程序会向一个 HTTP地址发送请求来获取 NameServer 地址，默认的 URL是http://jmenv. tbsite.net: 8080/rocketmq/nsaddr 
+
+第4种方式看似繁琐，但它是唯一支持动态增加 NameServer ，无须重启其他组件的方式。使用这种方式后其他组件会每隔2分钟请求一次该 URL ，获取最新的 NameServer 地址
+
+只增加 Broker 不会对原有的 Topic 产生影响，原来创建好的 Topic 中数据的读写依然在原来的那些 Broker 上进行。
+
+用Linux的kill pid 命令就可以正确地关闭 Broker, BrokerController 下有个shutdown 函数，这个函数被加到了 ShutdownHook 里，当用 Linux的kill命令时（不能用 kill -9 ), shutdown 函数会先被执行。也可以通过 RocketMQ 提供的工具（ mqshutdown broker ）来关闭 Broker ，它们的原理是一样的。
+
+1) Broker 正常关闭，启动；
+
+2) Broker 异常 Crash ，然后启动；
+
+3) OS Crash ，重启；
+
+4) 机器断电，但能马上恢复供电；
+
+5）磁盘损坏；
+
+6) CPU 主板、内存等关键设备损坏
+
+第1种情况属于可控的软件问题，内存中的数据不会丢失。如果重启过程中有持续运行的 Consumer, Master机器出故障后， Consumer 会自动重连到对应的 Slave 机器，不会有消息丢失和偏差。当Master 角色的机器重启以后， Consumer 又会重新连接到 Master 机器（ 注意在启动 Master 机器的时候，如果 Consumer 正在从 Slave 消费消息，不要停止 Consumer。假如此时先停止Consumer 后再启动 Master 机器，然后再启动 Consumer ，这个时候 Consumer就会去读 Master 机器上已经滞后的 offset 值，造成消息大量重复）
+
+如果第1种情况出现时有持续运行的 Producer，一台Master出故障后，Producer 只能向 Topic 下其他的 Master 机器发送消息，如果 Producer 采用同步发送方式，不会有消息丢失
+
+第2、3、4种情况属于软件故障，内存的数据可能丢失，所 以刷盘策略不同，造成的影响也不同，如果 Master、Slave 都配置成 SYNC FLUSH ，可以达到和第1种情况相同的效果
+
+第5、6种情况属于硬件故障 ，原有机器的磁盘数据可能会丢失。如果 Master 和 Slave 机器间配置成同步复制方式，某一台机器发生5或6的故障，也可以达到消息不丢失的效果。如果 Master 和 Slave机器间是异步复制，两次 Sync 间的消息会丢失
+
+DefaultMQPushConsumer 默认的 pullBatchSize是32 ，也就是每次从某个MssageQueue 读取消息的时候，最多可以读 32 个
+
+ConsumerQueue存储格式
+
+<- commitLog OffSet -><- size -> <- message tag hashcode ->
+
+通过tag过滤的过程就是对比定长的hashCode，经过hashCode对比，符合要求的消息被从CommitLog读取出来，消息在被消费前，会对比完整的Message Tag字符串，消除Hash冲突造成的误读
+
+DefaultMQPushConsumer 的负载均衡
+
+每个 DefaultMQPushConsumer 启动后，会马上会触发一个doRebalance 动作；而且在同一个ConsumerGroup 里加入新的 DefaultMQPushConsumer 时，各个 Consumer 都会被触发 do Rebalance 动作
+
+具体的负载均衡算法有五种，默认用的是第一种AllocateMessageQueueAveragely。负载均衡的结果与 Topic的Message Queue数量，以及 ConsumerGroup 里的 Consumer 的数量有关。负载均衡的分配粒度只到 Message Queue ，把 Topic 下的所有 Message Queue 分配到不同的Consumer 中，所以 Message Queue和Consumer 的数量关系，或者整除关系影响负载均衡结果
+
+以AllocateMessageQueueAveragely 策略为例，如果创建 Topic 的时候，把Message Queue 数设为3，当 Consumer数量为2的时候，有一个Consumer要处理 Topic 三分之二的消息，另一个处理三分之一的消息；当 Consumer数量为4的时候，有一个 Consumer无法收到消息，其他3个Consumer 各处理Topic 三分之一的消息。可见Message Queue数量设置过小不利于做负载均衡，通常情况下，应把一个 Topic的Message Queue 数设置为 16
+
+编写程序消费RocketMQ消息的时候，最常用的类是DefaultMQPushConsumer，这个类让我们消费消息变得很简单
+
+首先是初始化 MQClientinstance ，并且设置好 rebalance 策略和 pullApiWraper ，有这些结构后才能发送 pull 请求获取消息，然后是确定OffSetStore，OffsetStore里存储的是当前消费者所消费的消息在队列中的偏移量，根据消费消息方式的不同，offsetStore的类型也不同，如果是BROADCASTING广播模式，使用的是LocalFileOffetStore，Offset存到本地，如果是CLUSTERING模式，使用的是RemoteBrokerOffsetStore，Offset存到Broker机器上，然后是初始化consumeMessageService，根据对消息顺序需求的不同，使用不同的Service类型，最后调用MQClientInstance的START方法，开始获取数据。
+
+首先通过判断未处理消息的个数和总大小来控制是否继续请求消息。对于顺序消息还有一些特殊判断逻辑。获取的消息返回后，根据返回状态，调用相应的处理方法
+
+消息的处理结果可能有不同的值，主要的两个是CONSUME_SUCCESS和RECONSUME_LATER。如果消费不成功，要把消息提交到上面说的scheduledExecutorService线程池中，5秒后再执行，如果消费模式是CLUSTERING模式，未消费成功的消息会被先被发送回Broker，供这个ConsumerGroup里的其他Consumer消费，如果发送回Broker失败，再调用RECONSUME_LATER
+
+MQClientinstance是客户端各种类型的Consumer和Producer的底层类，这个类首先从NameServer获取并保存各种配置信息，比如Topic的Route信息。同时 MQClientlnstance还会通过MQClientAPIImpl 类实现消息的收发，也就是从 Broker 获取消息或者发送消息到 Broker
+
+Slave需要和Master同步的不只是消息本身，一些元数据信息也需要同步，比如TopicConfig信息、ConsumerOffset信息、DelayOffset和SubscriptionGroupConfig信息。 Broker在启动的时候，判断自己的角色是否是Slave ，是的话就启动定时同步任务
+
+CommitLog的同步，CommitLog和元数据信息不同： 首先， CommitLog的数据量比元数据要大；其次 ，对实时性和可靠性要求也不一样。元数据信息是定时同步的，在两次同步的时间差里，如果出现异常可能会造成Master上的元数据内容和Slave上的元数据内容不一致，不过这种情况还可以补救。CommitLog 在高可靠性场景下如果没有及时同步， 一旦 Master机器出故障， 消息就彻底丢失，所以有专门的代码来实现Master和Slave之间消息体内容的同步。CommitLog同步的方式是直接基于JavaNIO来实现，而不是netty。
+
+Netty 主要分为三部分：一是底层的零拷贝技术和统一通信模型；二是基于 JVM 实现的传输层； 三是常用协议支持
