@@ -319,3 +319,179 @@ Slave需要和Master同步的不只是消息本身，一些元数据信息也需
 CommitLog的同步，CommitLog和元数据信息不同： 首先， CommitLog的数据量比元数据要大；其次 ，对实时性和可靠性要求也不一样。元数据信息是定时同步的，在两次同步的时间差里，如果出现异常可能会造成Master上的元数据内容和Slave上的元数据内容不一致，不过这种情况还可以补救。CommitLog 在高可靠性场景下如果没有及时同步， 一旦 Master机器出故障， 消息就彻底丢失，所以有专门的代码来实现Master和Slave之间消息体内容的同步。CommitLog同步的方式是直接基于JavaNIO来实现，而不是netty。
 
 Netty 主要分为三部分：一是底层的零拷贝技术和统一通信模型；二是基于 JVM 实现的传输层； 三是常用协议支持
+
+
+
+
+
+
+每个Broker与NameServer集群中的所有节点建立长连接，定时注册 Topic 信息到所有 NameServer
+
+Producer与NameServer集群中的其中一个节点（随机选择）建立长连接，定期从NameServer取Topic路由信息，并向提供Topic服务的Master建立长连接，且定时向Master发送心跳。Producer完全无状态，可集群部署。
+
+Consumer与NameServer集群中的其中一个节点（随机选择）建立长连接，定期从NameServer取Topic路由信息，并向提供Topic服务的Master、Slave建立长连接，且定时向Master、Slave发送心跳。Consumer既可以从Master订阅消息，也可以从Slave订阅消息，订阅规则由Broker配置决定。
+
+（1）CommitLog
+
+消息主体以及元数据的存储主体，存储Producer端写入的消息主体内容。单个文件大小默认1G ，文件名长度为20位，左边补零，剩余为起始偏移量，比如00000000000000000000代表了第一个文件，起始偏移量为0，文件大小为1G=1073741824；当第一个文件写满了，第二个文件为00000000001073741824，起始偏移量为1073741824，以此类推。消息主要是顺序写入日志文件，当文件满了，写入下一个文件；
+
+（2） ConsumeQueue
+
+消息消费的逻辑队列，其中包含了这个MessageQueue在CommitLog中的起始物理位置偏移量offset，消息实体内容的大小和Message Tag的哈希值。从实际物理存储来说，ConsumeQueue对应每个Topic和QueuId下面的文件。单个文件大小约5.72M，每个文件由30W条数据组成，每个文件默认大小为600万个字节，当一个ConsumeQueue类型的文件写满了，则写入下一个文件；
+
+（3）IndexFile
+
+用于为生成的索引文件提供访问服务，通过消息Key值查询消息真正的实体内容。在实际的物理存储上，文件名则是以创建时的时间戳命名的，固定的单个IndexFile文件大小约为400M，一个IndexFile可以保存 2000W个索引；
+
+（4）MapedFileQueue
+
+对连续物理存储的抽象封装类，源码中可以通过消息存储的物理偏移量位置快速定位该offset所在MappedFile(具体物理存储位置的抽象)、创建、删除MappedFile等操作；
+
+（5）MappedFile
+
+文件存储的直接内存映射业务抽象封装类，源码中通过操作该类，可以把消息字节写入PageCache缓存区（commit），或者原子性地将消息持久化的刷盘（flush）；
+
+（1）消息生产与消息消费相互分离
+
+Producer端发送消息最终写入的是CommitLog（消息存储的日志数据文件），Consumer端先从ConsumeQueue（消息逻辑队列）读取持久化消息的起始物理位置偏移量offset、大小size和消息Tag的HashCode值，随后再从CommitLog中进行读取待拉取消费消息的真正实体内容部分；而IndexFile（索引文件）则只是为了消息查询提供了一种通过key或时间区间来查询消息的方法（ps：这种通过IndexFile来查找消息的方法不影响发送与消费消息的主流程）。
+
+（2）RocketMQ的CommitLog文件采用混合型存储
+
+所有的Topic下的消息队列共用同一个CommitLog的日志数据文件，并通过建立类似索引文件—ConsumeQueue的方式来区分不同Topic下面的不同MessageQueue的消息，同时为消费消息起到一定的缓冲作用（只有ReputMessageService异步服务线程通过doDispatch异步生成了ConsumeQueue队列的元素后，Consumer端才能进行消费）。这样，只要消息写入并刷盘至CommitLog文件后，消息就不会丢失，即使ConsumeQueue中的数据丢失，也可以通过CommitLog来恢复。
+
+（3）RocketMQ每次读写文件的时候真的是完全顺序读写么？
+
+这里，发送消息时，生产者端的消息确实是顺序写入CommitLog；订阅消息时，消费者端也是顺序读取ConsumeQueue，然而根据其中的起始物理位置偏移量offset读取消息真实内容却是随机读取CommitLog。 在RocketMQ集群整体的吞吐量、并发量非常高的情况下，随机读取文件带来的性能开销影响还是比较大的，那么这里如何去优化和避免这个问题呢？后面的章节将会逐步来解答这个问题。
+
+总结下RocketMQ存储架构的优缺点：
+
+优点：
+
+1、ConsumeQueue消息逻辑队列较为轻量级；
+
+2、对磁盘的访问串行化，避免磁盘竟争，不会因为队列增加导致IOWAIT增高；
+
+缺点：
+
+1、对于CommitLog来说写入消息虽然是顺序写，但是读却变成了完全的随机读；
+
+2、Consumer端订阅消费一条消息，需要先读ConsumeQueue，再读Commit Log，一定程度上增加了开销；
+
+RocketMQ存储关键技术—Mmap与PageCache
+（1）Mmap内存映射技术的特点
+
+Mmap内存映射和普通标准IO操作的本质区别在于它并不需要将文件中的数据先拷贝至OS的内核IO缓冲区，而是可以直接将用户进程私有地址空间中的一块区域与文件对象建立映射关系，这样程序就好像可以直接从内存中完成对文件读/写操作一样。只有当缺页中断发生时，直接将文件从磁盘拷贝至用户态的进程空间内，只进行了一次数据拷贝。对于容量较大的文件来说（文件大小一般需要限制在1.5~2G以下，这也是CommitLog设置成1G的原因），采用Mmap的方式其读/写的效率和性能都非常高。
+
+使用Mmap的限制
+
+Mmap映射的内存空间释放的问题
+
+由于映射的内存空间本身就不属于JVM的堆内存区（Java Heap），因此其不受JVM GC的控制，卸载这部分内存空间需要通过系统调用 unmap()方法来实现。然而unmap()方法是FileChannelImpl类里实现的私有方法，无法直接显示调用。RocketMQ中的做法是，通过Java反射的方式调用“sun.misc”包下的Cleaner类的clean()方法来释放映射占用的内存空间；
+
+MappedByteBuffer内存映射大小限制
+
+因为其占用的是虚拟内存（非JVM的堆内存），大小不受JVM的-Xmx参数限制，但其大小也受到OS虚拟内存大小的限制。一般来说，一次只能映射1.5~2G 的文件至用户态的虚拟内存空间，这也是为何RocketMQ默认设置单个CommitLog日志数据文件为1G的原因了；
+
+使用MappedByteBuffe的其他问题
+
+会存在内存占用率较高和文件关闭不确定性的问题；
+
+OS的PageCache机制
+PageCache是OS对文件的缓存，用于加速对文件的读写。一般来说，程序对文件进行顺序读写的速度几乎接近于内存的读写访问，这里的主要原因就是在于OS使用PageCache机制对读写访问操作进行了性能优化，将一部分的内存用作PageCache。
+
+（1）对于数据文件的读取
+
+如果一次读取文件时出现未命中PageCache的情况，OS从物理磁盘上访问读取文件的同时，会顺序对其他相邻块的数据文件进行预读取（ps：顺序读入紧随其后的少数几个页面）。这样，只要下次访问的文件已经被加载至PageCache时，读取操作的速度基本等于访问内存。
+
+（2）对于数据文件的写入
+
+OS会先写入至Cache内，随后通过异步的方式由pdflush内核线程将Cache内的数据刷盘至物理磁盘上。
+
+对于文件的顺序读写操作来说，读和写的区域都在OS的PageCache内，此时读写性能接近于内存。RocketMQ的大致做法是，将数据文件映射到OS的虚拟内存中（通过JDK NIO的MappedByteBuffer），写消息的时候首先写入PageCache，并通过异步刷盘的方式将消息批量的做持久化（同时也支持同步刷盘）；订阅消费消息时（对CommitLog操作是随机读取），由于PageCache的局部性热点原理且整体情况下还是从旧到新的有序读，因此大部分情况下消息还是可以直接从Page Cache中读取，不会产生太多的缺页（Page Fault）中断而从磁盘读取。
+
+（1）同步刷盘
+
+只有在消息真正持久化至磁盘后，RocketMQ的Broker端才会真正地返回给Producer端一个成功的ACK响应。同步刷盘对MQ消息可靠性来说是一种不错的保障，但是性能上会有较大影响，一般适用于金融业务应用领域。RocketMQ同步刷盘的大致做法是，基于生产者消费者模型，主线程创建刷盘请求实例—GroupCommitRequest并在放入刷盘写队列后唤醒同步刷盘线程—GroupCommitService，来执行刷盘动作（其中用了CAS变量和CountDownLatch来保证线程间的同步）。这里，RocketMQ源码中用读写双缓存队列（requestsWrite/requestsRead）来实现读写分离，其带来的好处在于内部消费生成的同步刷盘请求可以不用加锁，提高并发度。
+
+（2）异步刷盘
+
+能够充分利用OS的PageCache的优势，只要消息写入PageCache即可将成功的ACK返回给Producer端。消息刷盘采用后台异步线程提交的方式进行，降低了读写延迟，提高了MQ的性能和吞吐量。异步和同步刷盘的区别在于，异步刷盘时，主线程并不会阻塞，在将刷盘线程wakeup后，就会继续执行。
+
+同步复制和异步复制
+
+当集群中有master和slave两个角色时，就要涉及到主从复制，同步复制是指在master刷盘后，需要在slave同步成功后才返回。而异步复制是在master刷盘成功后就直接返回。在高可用的角度去考虑，同步复制是不会在突然宕机时，丢失数据的。所以我们在工作中是使用同步复制异步刷盘的。
+
+(1) NameServer： RocketMQ集群的命名服务器（也可以说是注册中心），它本身是无状态的（实际情况下可能存在每个NameServer实例上的数据有短暂的不一致现象，但是通过定时更新，在大部分情况下都是一致的），用于管理集群的元数据（ 例如，KV配置、Topic、Broker的注册信息）。nameserver存有全量的路由信息，提供对等的读写服务，支持快速扩缩容。nameserver接收client（producer/consumer）的请求，根据消息的topic获取相应的broker路由信息。集群部署后，节点之间无任何信息同步。
+
+(2)Broker（Master）： RocketMQ消息代理服务器主节点，起到串联Producer的消息发送和Consumer的消息消费，和将消息的落盘存储的作用；
+
+(3)Broker（Slave）： RocketMQ消息代理服务器备份节点，主要是通过同步/异步的方式(同步复制：消息发给master的同时也会将消息发送给slave 异步双写：只发送到master，再由master异步同步到slave)将主节点的消息同步过来进行备份，为RocketMQ集群的高可用性提供保障；
+
+(4)queue（队列）: queue是消息的物理管理单位，而topic是逻辑管理单位。一个topic下可以有多个queue，默认自动创建是4个，手动创建是8个。queue的引入使得消息存储可以分布式集群化，具有了水平扩展的能力。1个message只能属于1个queue、1个topic。在rocketmq中，所有消息队列都是持久化，长度无限的数据结构，所谓长度无限是指队列中的每个存储单元都是定长，访问其中的存储单元使用offset来访问，offset 为 java long 类型，64 位，理论上在 100年内不会溢出，所以认为是长度无限，另外队列中只保存最近几天的数据，之前的数据会按照过期时间来删除。也可以认为 Message Queue是一个长度无限的数组，offset就是下标。
+
+rocketmq中，producer将消息发送给broker时，需要指定发送到哪一个queue中，默认情况下，producer会轮询的将消息发送到每个queue中，顺序是随机的，但总体上每个queue的消息数量均分，所有broker下的queue合并成一个list去轮询,也可以由程序员通过MessageQueueSelector接口来指定具体发送到哪个queue中。
+
+对于consumer而言，会为每个consumer分配固定的队列（如果队列总数没有发生变化），consumer从固定的队列中去拉取没有消费的消息进行处理。消费端会通过RebalanceService线程，10秒钟做一次基于topic下的所有队列负载，获取同一个Consumer Group下的所有Consumer实例数或Topic的queue的个数是否改变，通知所有Consumer实例重新做一次负载均衡算法。
+
+(1)NamerServer和NamerServer： nameserver互相独立，彼此没有通信关系，单台nameserver挂掉，不影响其他nameserver。
+
+(2)Broker和NamerServer： Broker（Master or Slave）均会和每一个NameServer实例来建立TCP连接，定时注册topic&broker的路由信息到所有name server中。Broker在启动的时候会注册自己配置的Topic信息到NameServer集群的每一台机器中。即每一个NameServer均有该broker的Topic路由配置信息。其中，Master与Master之间无连接，Master与Slave之间有连接；
+
+(2)Producer、Consumer与NamerServer： 每一个Producer会与NameServer集群中的一个实例建立TCP连接，从这个NameServer实例上拉取Topic路由信息；如果该nameserver挂掉，消费者会自动连接下一个nameserver，直到有可用连接为止，并能自动重连。
+
+(3)Producer、Consumer和Broker: Producer会和它要发送的topic相关联的Master的Broker代理服务器建立TCP连接，用于发送消息以及定时的心跳信息；集群消费模式下，一个消费者集群多台机器共同消费一个topic的多个队列，一个队列只会被一个消费者消费。如果某个消费者挂掉，分组内其它消费者会接替挂掉的消费者继续消费。
+
+（1）Pull模式的Consumer端代码如下
+
+在示例代码中，可以看到业务工程在Consumer启动后，Consumer主动获取MessageQueue的Set集合，遍历该集合中的每一个队列，发送Pull的请求（参数中带有队列中的消息偏移量），同时需要Consumer端自己保存消息消费的offset偏移量至本地变量中。在Pull模式下，需要业务应用代码自身去完成比较多的事情，因此在实际应用中用的较少。
+
+（2）Push模式的Consumer端代码如下
+
+在示例代码中，业务工程的应用程序使用Push方式进行消费时，Consumer端注册了一个监听器，Consumer在收到消息后主动调用这个监听器完成消费并进行对应的业务逻辑处理。由此可见，业务应用代码只需要完成消息消费即可，无需参与MQ本身的一些任务处理
+
+消费者核心类
+
+RebalanceImpl
+字面上的意思（重新平衡）也就是消费端消费者与消息队列的重新分布，与消息应该分配给哪个消费者消费息息相关。负责分配当前 Consumer 可消费的消息队列( MessageQueue )。当有新的 Consumer 的加入或移除，都会重新分配消息队列。启动MQClientInstance实例时候，会完成负载均衡服务线程—RebalanceService的启动（每隔20s执行一次）。
+
+Rebalance是针对Topic+ConsumerGroup进行Rebalance的，在我们创建的comsumer过程中会订阅topic（包括%retry%consumerGroup），Rebalance就是要这些Topic下的所有messageQueue按照一定的规则分发给consumerGroup下的consumer进行消费。
+
+RocketMQ消息重试
+
+producer发送消息重试
+
+同步发送，除了正常调用一次，发送消息如果失败了会重试2次。异步发送，不会重试
+
+consumer消费重试
+
+(1) 重试队列： 如果Consumer端因为各种类型异常导致本次消费失败，为防止该消息丢失而需要将其重新回发给Broker端保存，保存这种因为异常无法正常消费而回发给MQ的消息队列称之为重试队列。 RocketMQ会为每个消费组都设置一个Topic名称为“%RETRY%+consumerGroup”的重试队列（这里需要注意的是，这个Topic的重试队列是针对消费组，而不是针对每个Topic设置的），用于暂时保存因为各种异常而导致Consumer端无法消费的消息。考虑到异常恢复起来需要一些时间，会为重试队列设置多个重试级别，每个重试级别都有与之对应的重新投递延时，重试次数越多投递延时就越大。RocketMQ对于重试消息的处理是先保存至Topic名称为“SCHEDULETOPICXXXX”的延迟队列中，后台定时任务按照对应的时间进行Delay后重新保存至“%RETRY%+consumerGroup”的重试队列中
+
+(2) 死信队列： 由于有些原因导致Consumer端长时间的无法正常消费从Broker端Pull过来的业务消息，为了确保消息不会被无故的丢弃，那么超过配置的“最大重试消费次数”后就会移入到这个死信队列中。在RocketMQ中，SubscriptionGroupConfig配置常量默认地设置了两个参数，一个是retryQueueNums为1（重试队列数量为1个），另外一个是retryMaxTimes为16（最大重试消费的次数为16次）。Broker端通过校验判断，如果超过了最大重试消费次数则会将消息移至这里所说的死信队列。这里，RocketMQ会为每个消费组都设置一个Topic命名为“%DLQ%+consumerGroup"的死信队列。一般在实际应用中，移入至死信队列的消息，需要人工干预处理；
+
+Consumer端回发消息至Broker端
+(1) 业务方正常消费（CONSUMESUCCESS）： 正常情况下，设置ackIndex的值为consumeRequest.getMsgs().size() - 1，因此后面的遍历consumeRequest.getMsgs()消息集合条件不成立，不会调用回发消费失败消息至Broker端的方法—sendMessageBack(msg, context)。最后，更新消费的偏移量；
+
+(2) 业务方消费失败（RECONSUMELATER）： 异常情况下，设置ackIndex的值为-1，这时就会进入到遍历consumeRequest.getMsgs()消息集合的for循环中，执行回发消息的方法—sendMessageBack(msg, context)。这里，首先会根据brokerName得到Broker端的地址信息，然后通过网络通信的Remoting模块发送RPC请求到指定的Broker上，如果上述过程失败，则创建一条新的消息重新发送给Broker，此时新消息的Topic为“%RETRY%+ConsumeGroupName”—重试队列的主题。其中，在MQClientAPIImpl实例的consumerSendMessageBack()方法中封装了ConsumerSendMsgBackRequestHeader的请求体，随后完成回发消费失败消息的RPC通信请求（业务请求码为：CONSUMERSENDMSGBACK）。倘若上面的回发消息流程失败，则会延迟5S后重新在Consumer端进行重新消费。与正常消费的情况一样，在最后更新消费的偏移量；
+
+Broker端对于回发消息处理的主要流程
+Broker端收到这条Consumer端回发过来的消息后，通过业务请求码（CONSUMERSENDMSGBACK）匹配业务处理器—SendMessageProcessor来处理。在完成一系列的前置校验（这里主要是“消费分组是否存在”、“检查Broker是否有写入权限”、“检查重试队列数是否大于0”等）后，尝试获取重试队列的TopicConfig对象（如果是第一次无法获取到，则调用createTopicInSendMessageBackMethod()方法进行创建）。根据回发过来的消息偏移量尝试从commitlog日志文件中查询消息内容，若不存在则返回异常错误。然后，设置重试队列的Topic—“%RETRY%+consumerGroup”至MessageExt的扩展属性“RETRYTOPIC”中，并对根据延迟级别delayLevel和最大重试消费次数maxReconsumeTimes进行判断，如果超过最大重试消费次数（默认16次），则会创建死信队列的TopicConfig对象（用于后面将回发过来的消息移入死信队列）。在构建完成需要落盘的MessageExtBrokerInner对象后，调用“commitLog.putMessage(msg)”方法做消息持久化。这里，需要注意的是，在putMessage(msg)的方法里会使用“SCHEDULETOPICXXXX”和对应的延迟级别队列Id分别替换MessageExtBrokerInner对象的Topic和QueueId属性值，并将原来设置的重试队列主题（“%RETRY%+consumerGroup”）的Topic和QueueId属性值做一个备份分别存入扩展属性properties的“REALTOPIC”和“REALQID”属性中。看到这里也就大致明白了，回发给Broker端的消费失败的消息并非直接保存至重试队列中，而是会先存至Topic为“SCHEDULETOPICXXXX”的定时延迟队列中。
+
+在源码中搜索下关键字—“SCHEDULETOPICXXXX”，会发现Broker端还存在着一个后台服务线程—ScheduleMessageService（通过消息存储服务—DefaultMessageStore启动），通过查看源码可以知道其中有一个DeliverDelayedMessageTimerTask定时任务线程会根据Topic（“SCHEDULETOPICXXXX”）与QueueId，先查到逻辑消费队列ConsumeQueue，然后根据偏移量，找到ConsumeQueue中的内存映射对象，从commitlog日志中找到消息对象MessageExt，并做一个消息体的转换（messageTimeup()方法，由定时延迟队列消息转化为重试队列的消息），再次做持久化落盘，这时候才会真正的保存至重试队列中。看到这里就可以解释上面的疑问了，定时延迟队列只是为了用于暂存的，然后延迟一段时间再将消息移入至重试队列中。RocketMQ设定不同的延时级别delayLevel，并且与定时延迟队列相对应。
+
+每个Consumer实例在启动的时候就默认订阅了该消费组的重试队列主题
+
+发送顺序消息
+发送消息是顺序的：需要同一线程发送一组消息，而调用的produce发送消息的方法也要是同步的。
+broker存储消息是顺序的
+consumer消费是顺序的：需要保证一个queue只在一个线程内被消费。
+producer可以用MessageQueueSelector控制同一个订单号的mq投送到同一个messageQueue中
+
+consumer使用MessageListenerOrderly控制消费的有序性，集群模式下，Consumer 更新属于自己的消息队列时，会向 Broker 锁定该消息队列（广播模式下不需要）。如果锁定失败，则更新失败，即该消息队列不属于自己，不能进行消费。
+
+这是一个分布式锁，保证了一个queue只会被一个消费者锁定和消费。如果锁定成功，则添加到拉取任务中，如果锁定未成功，说明虽然发送了消息队列重新负载，但该消息队列还未被释放，本次负载周期不会进行消息拉取。Broker 消息队列锁会过期，默认配置 30s。因此，Consumer 需要不断向 Broker 刷新该锁过期时间，默认配置 20s 刷新一次。集群模式下，Consumer 移除自己的消息队列时，会向 Broker 解锁该消息队列（广播模式下不需要）。
+
+先说一下ProcessQueue这个关键的数据结构。一个MessageQueue对应一个ProcessQueue，是一个有序队列，该队列记录一个queueId下所有从brokerpull回来的消息，如果消费成功了就会从队列中删除。ProcessQueue有序的原因是维护了一个TreeMap。
+
+msgTreeMap：里面维护了从broker pull回来的所有消息，TreeMap是有序的，key是Long类型的，没有指定comparator，默认是将key强转为Comparable，然后进行比较，因为key是当前消息的offset，而Long实现了Comparable接口，所以msgTreeMap里面的消息是按照offset排序的。
+
+所以是ProcessQueue保证了拉取回来的消息是有序的，继续上面说到的启动线程执行ConsumeRequest.run方法来消费消息。
