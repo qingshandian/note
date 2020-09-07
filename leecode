@@ -1,0 +1,404 @@
+leecode
+双指针问题 主要用于遍历数组，两个指针指向不同的元素，按各自的规律进行移动，协同完成任务
+1.两数之和，两数平方和
+2.反转字符串 回文字符串
+3.归并有序数组
+4.判断链表是否存在环
+5.最长子字符串
+
+排序问题
+选择排序 进化 堆排序
+插入排序 进化 希尔排序
+冒泡排序 进化 快速排序
+归并排序
+三向切分快速排序 荷兰国旗问题
+
+贪心思想 选取一个合适的优先策略，将数据按优先级排列并过滤，保证每次操作都是局部最优的，最后得到的结果就是全局最优的
+1.饼干分配 优先策略是优先满足需求最小的孩子，将孩子按需求度从小到大排序依次判断是否满足
+while(gi < g.length && si < s.length){
+	if(g[gi] <= s[si]) gi++;
+	si++;
+}
+return gi;
+
+2.不重叠区间问题 计算让一组区间不重叠所需要移除的区间个数，先计算最多能组成的不重叠区间个数，然后用区间总数减去
+优先策略是 选择的区间结尾越小，留给后面的区间的空间越大，那么后面能够选择的区间个数也就越大，按区间的结尾进行排序，每次选择结尾最小并且和前一个区间不重叠的区间
+int count = 1; int end = a[0].end;
+for(int i=1; i<a.length; i++){
+	if(a[i].start < end){
+		continue;
+	}
+	end = a[i].end;
+	count++;
+}
+return total-count;
+
+二分查找
+binarySearch(a, k, 0, a.length-1);
+public static int binarySearch(int[] a, int k, int low, int high){
+	if(low > high) return -1;
+	int mid = low + (high-low)/2
+	if(k > a[mid]){
+		return binarySearch(a, k, mid+1, high);
+	} else if (k < a[mid]){
+		return binarySearch(a, k ,low, mid-1);
+	} else {
+		return mid;
+	}
+}
+//非递归实现
+public int binarySearch(int[] nums, int key){
+	int l=0,h=nums.length-1;
+	while(l<=h){
+		int m = l+(h-1)/2;
+		if(nums[m] == key){
+			return m;
+		} else if(nums[m] > key){
+			h = m-1;
+		} else {
+			l = m+1;
+		}
+	}	
+	return -1;
+}
+
+如果在有重复元素的数组中使用二分查找，不能直接返回-1，而是返回left,为了验证有没有找到，需要在调用端判断一下返回位置上的值和key是否相等
+有两种计算中值m的方式 m=(l+h)/2或者m=l+(h-l)/2，l+h可能出现加法溢出，最好使用第二种方式
+
+动态规划
+递归和动态规划都是将原问题拆成多个子问题然后求解，他们之间最本质的区别是，动态规划保存了子问题的解，避免重复计算
+1.爬楼梯，这个并不是严格的斐波那契数列，因为它是1=1,2=2.3=3,4=5，而斐波那契是1=1,2=1,3=2,4=3
+dp[i] = dp[i-1] + dp[i-2]
+
+public static int climbStairs(int n){
+	if(n <= 2) return n;
+	int pre2 = 1, pre1 = 2;
+	for(int i=2; i<n; i++){
+		int cur = pre2 + pre1;
+		pre2 = pre1;
+		pre1 = cur;
+	}
+	return pre1;
+}
+斐波那契数列的递归实现
+public static int fibo(int n){
+	if(n < 2) return n;
+	return fibo(n-1) + fibo(n-2);
+}
+递归实现虽然看起来很简单，但是执行次数太多，执行过程如下图所示，大量的结点被重复执行，造成浪费
+                fib(5) 
+		 fib(4)         fib(3)
+    fib(3)   fib(2)  fib(2) fib(1)
+fib(2) fib(1)
+可以创建一个数组将已经计算过的结果都保存下来，判断时如果已经计算过则直接返回
+public static int fibonacci(int n){
+	int[] cache = new int[n+1];
+	for(int i=0; i<=n; i++) cache[i] = -1;
+	return fib(n, cache);
+}
+public static int fib(int n, int[] cache){
+	if(cache[n]!=-1) return cache[n];
+	if(n < 2) return n;
+	return fib(n-1, cache) + fibo(n-2, cache);
+}
+
+
+2.抢劫问题 抢劫一排住户，但是不能抢临近的住户，求最大抢劫量
+dp[i] = max(dp[i-2]+nums[i], dp[i-1])
+
+public static int rob(int[] nums){
+	int pre2=0,pre1=0;
+	for(int i=0; i<nums.length, i++){
+		int max = Math.max(pre2+nums[i], pre1);
+		pre2 = pre1;
+		pre1 = max;
+	}
+	return pre1;
+}
+
+矩阵的总路径数，只能向下或向右移动
+从起点走到m行n列
+f(m,n) = f(m-1,n) + f(m,n-1)
+public int totalPaths(int m, int n){
+	//缓存上一行节点的总路径数
+	int[] dp = new int[n];
+	//从1,1节点开始走
+	//从上往下走
+	for(int i=1; i<m; i++){
+		//从左往右走
+		for(int j=1; j<n; j++){
+			//注意这里等式后面的dp[i-1]表示的是f(m,n-1)的值，dp[i]表示的是f(m-1,n)的值
+			dp[i] = dp[i-1] + dp[i];
+		}
+	}
+	return dp[n-1];
+}
+
+矩阵的最小路径和，只能向下或向右移动
+f(m,n) = min(f(m-1,n),f(m,n-1)) + grid[m][n]
+public int minPathSum(int[][] grid){
+	int m = grid.length;
+	int n = grid[0].length;
+	int[] dp = new int[n];
+	//从0,0节点出发
+	//从上往下走
+	for(int i=0; i<m; i++){
+		//从左往右走
+		for(int j=0; j<n; j++){
+			//判断走左侧边情况，左侧边只可能是从上面走下来的
+			if(j == 0){
+				dp[j] = dp[j] + grid[i][j];
+			//判断走上侧边的情况，上侧边只有可能是从左边过来的	
+			} else if(i == 0){
+				dp[j] = dp[j-1]+ grid[i][j];
+			} else {
+				dp[j] = Math.min(dp[j], dp[j-1]) + grid[i][j];
+			}
+		}
+	}
+	return dp[n-1];
+}
+
+//最长递增子序列
+求一个数组的最长递增子序列 需要先查出 所有递增子序列的长度，长度最大的即为最长递增子序列，对于数组a，遍历找出每一个以a[i]结尾的最长递增子序列长度di，di应该等于max(i之前所有小于a[i]的元素中的最长递增子序列长度)+1，定义dp[i]保存以i结尾的最长递增子序列的长度，最后遍历dp找到长度最大的i元素，再到原数组中找到第i个元素以及i之前所有小于a[i]的元素即为最长递增子序列
+dp[n] = max{1,dp[i]+1 | Si<Sn&&i<n}
+
+public int lengthOfLIS(int[] nums){
+	int[] dp = new int[nums.length];
+	for(int i=0; i<nums.length; i++){
+		int max = 1;
+		for(int j=0; j<i; j++){
+			if(nums[j] < nums[i]){
+				max = Math.max(max, dp[j] + 1);
+			}
+		}
+		dp[i] = max;
+	}
+
+	int ret = 0;
+	for(int i=0; i<n; i++){
+		ret = Math.max(ret, dp[i]);
+	}
+	//这个返回的是最长递增子序列的长度
+	return ret;
+}
+
+//01背包问题
+N个物品，M个容量的最大价值
+dp[i][j]为第i个物品在容量j的最大价值，如果此物品没有放入背包则dp[i][j] = dp[i-1][j]，如果放入了背包则dp[i][j] = max(dp[i-1][j],dp[i-1][j-w]+v)
+public int bag(int W, int N, int[] w, int[] v){
+	int[][] dp = new int[N+1][W+1];
+	for(int i=1; i<=N; i++){
+		for(int j=1; j<=W; j++){
+			if(j >= weight[i]){
+				dp[i][j] = Math.max(dp[i-1][j], dp[i-1][j-w[i]] + v[i]]);
+			} else {
+				dp[i][j] = dp[i-1][j];
+			}
+		}
+	}
+
+}
+
+//硬币问题 1 2 5 三种面额硬币凑齐11块钱最少需要多少个硬币 f(11) = min(f(10),f(6),f(9))+1
+public int coinChange(int[] coins, int amount){
+	int[] dp = new int[amount+1];
+	Arrays.fill(dp, amount+1);
+	dp[0] = 0;
+	for(int i=1; i<=amount; i++){
+		for(int j=0; j<coins.length&&coins[j]<=i; j++){
+			dp[i] = Math.min(dp[i], dp[i-coins[j]]+1);
+		}
+	}
+	return dp[amount] > amount?-1:dp[amount];
+}
+
+//十进制转二进制
+public static void tenToBin(Integer a){
+	Stack s = new Stack();
+	while(a != 0){
+		s.push(a % 2);
+		a = a / 2;
+	}
+	while(!s.empty){
+		System.out.print(s.pop());
+	}
+}
+
+//二进制转十进制
+public static void binToTen(String bin){
+	char[] c = bin.toCharArray();
+	double ten = 0;
+	for(int i=0; i<c.length; i++){
+		ten = ten + Integer.parseInt(c[i]+"") * Math.pow(2, bin.length-i-1);
+	}
+	System.out.print(ten);
+}
+
+//字符串数字相加
+public static void addStrings(String a, String b){
+	int i = a.length()-1, j = b.length()-1;
+	Stack s = new Stack();
+	int carry = 0;
+	while(carry>0 || i>=0 || j>=0){
+		int ai = i<0 ? 0 : a.charAt(i--) - '0';
+		int bj = j<0 ? 0 : b.charAt(j--) - '0';
+		s.push((ai+bj)%10);
+		carry = (ai+bj)/10;
+	}
+	while(!s.empty()){
+		System.out.print(s.pop());
+	}
+}
+
+多数投票问题
+找出数组中出现次数大于n/2的元素
+public int majorityElement(int[] nums){
+	int cnt = 0, major = nums[0];
+	for(int num: nums){
+		major = (cnt==0) ? num:major;
+		cnt = (major==num)?cnt+1:cnt-1;
+	}
+	return major;
+}
+
+链表 链表是空节点，或者有一个值和一个指向下一个链表的指针，因此很多链表问题可以用递归来处理，链表递归一般是单递归，即在递归的调用栈只有一条出入栈路径，返回即出栈，递归结束条件一般是到达最后一个节点即head.next==null或者到达最后一个节点的下一个节点即head==null
+1.找出两个链表的交点
+假设相交部分为c，链表A的长度为a+c，链表B的长度为b+c，则a+c+b = b+c+a
+下面这种写法的前提是直到A和B一定相交，否则需要先判断下节点是否已经切换过，避免无限循环
+public ListNode getInterse(ListNode headA, ListNode headB){
+	ListNode l1 = headA,l2 = headB;
+	while(l1!=l2){
+		l1 = (l1==null) ? headB : l1.next;
+		l2 = (l2==null) ? headA : l2.next;
+	}
+	return l1;
+}
+如果只是判断是否存在交点，那么可以直接比较两个链表的最后一个节点是否相同或者把第一个链表的结尾连接到第二个链表的开头，看第二个链表是否有环
+
+2.链表反转
+//头插法，循环链表把每个节点插入到新头节点与它的下一个节点之间
+public ListNode reverseList(ListNode head){
+	ListNode newHead = new ListNode();
+	while(head != null){
+		ListNode next = head.next;
+		head.next = newHead.next;
+		newHead.next = head;
+		head = next;
+	}
+	return newHead;
+}
+
+3.归并两个有序列表
+用合并有序数组的方法或者采用下面的递归法
+public ListNode mergeTwoLists(ListNode l1, ListNode l2){
+	if(l1 == null) return l2;
+	if(l2 == null) return l1;
+	if(l1.value < l2.value){
+		l1.next = mergeTwoLists(l1.next, l2);
+		return l1;
+	} else {
+		l2.next = mergeTwoLists(l1, l2.next);
+		return l2;
+	}	
+}
+
+4.删除倒数第N个节点
+先创建一个指针A走到第n+1个节点，再创建一个指针B指向头节点，两个指针同时向后走，当指针A走到最后一个节点时，指针B走到倒数第N个节点的前一个节点，此时让此节点的next等于next.next即可
+public ListNode removeNthFromEnd(ListNode head, int n){
+	ListNode fast = head,slow = head;
+	while(n-- > 0){
+		fast = fast.next;
+	}
+	while(fast.next != null){
+		fast = fast.next;
+		slow = slow.fast;
+	}
+	slow.next = slow.next.next;
+	return head;
+}
+
+5.判断回文链表
+先用快慢指针找到中间节点，再把链表切成两半，把后半段链表反转，再依次比较两个链表的每个节点是否相同
+public boolean isPalindrome(ListNode head){
+	ListNode slow = head,fast = head.next;
+	while(fast!=null && fast.next != null){
+		slow = slow.next;
+		fast = fast.next;
+	}
+	if(fast != null) slow = slow.next;
+	cut(head, slow);
+	return isEqual(head, reverse(slow));
+}
+
+private void cut(ListNode head, ListNode cutNode){
+	while(head.next != cutNode){
+		head = head.next;
+	}
+	head.next = null;
+}
+
+private ListNode reverse(ListNode head){
+	ListNode newHead = null;
+	while(head != null){
+		ListNode nextNode = head.next;
+		head.next = newHead.next;
+		newHead.next = head;
+		head = nextNode;
+	}
+	return newHead;
+}
+
+private boolean isEqual(ListNode l1, ListNode l2){
+	while(l1 != null && l2 != null){
+		if(l1.value != l2.value) return false;
+		l1 = l1.next;
+		l2 = l2.next;
+	}
+	return true;
+}
+
+树 树的递归形式相比链表一般是双递归，树递归的终结条件一般是roo==null，即到达叶子结点的子结点
+树的高度，当前结点的高度等于左右子结点最大的高度+1，叶子结点的高度为1
+public int maxDepth(TreeNode root){
+	if(root == null) return 0;
+	return Math.max(maxDepth(root.left), maxDepth(root.right)) + 1;
+}
+是否是平衡树
+private boolean result = true;
+public int maxDepth(TreeNode root){
+	if(root == null) return 0;
+	int l = maxDepth(root.left);
+	int r = maxDepth(root.right);
+	if(Math.abs(l-r) > 1) result = false;
+	return 1+Math.max(l,r);
+}
+
+
+原码 反码(负数的反码=除符号位，其余取反) 补码(负数的补码=反码+1)
+java中用补码表示二进制数，最高位为符号位
+<<左移 符号位不变 低位补0 ，相当于乘以2的n次方
+>>右移 符号位不变，高位补符号位 相当于除以2的n次方
+>>>无符号右移 将符号位当做数字为看待，低位溢出，高位补0
+
+-1>>>1 = Integer.MAX_VALUE
+
+判断一个数奇数偶数 n&1==1 ? 奇数 : 偶数
+交换两个变量的值
+int a=3,b=4; 
+a = a ^ b;
+b = a ^ b;
+a = a ^ b;
+
+统计两个数的二进制表示有多少位不同
+public int dist(int x, int y){
+	int z = x ^ y;
+	int cnt = 0;
+	while(z != 0){
+		if((z & 1) == 1) cnt++;
+		z >> 1;
+	}
+	return cnt;
+}
+
+两个相同的数异或的结果为0
